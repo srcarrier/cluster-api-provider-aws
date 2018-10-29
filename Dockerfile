@@ -26,7 +26,6 @@ COPY pkg/    pkg/
 COPY cmd/    cmd/
 COPY vendor/ vendor/
 
-
 RUN GOPATH="/go" CGO_ENABLED=0 GOOS=linux go build -o /go/bin/machine-controller-manager -ldflags '-extldflags "-static"' sigs.k8s.io/cluster-api-provider-aws/cmd/manager
 RUN GOPATH="/go" CGO_ENABLED=0 GOOS=linux go build -o /go/bin/manager -ldflags '-extldflags "-static"' sigs.k8s.io/cluster-api-provider-aws/vendor/sigs.k8s.io/cluster-api/cmd/manager
 
