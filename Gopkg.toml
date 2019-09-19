@@ -30,11 +30,11 @@ required = [
 
 [[override]]
   name = "github.com/openshift/cluster-api"
-  branch = "openshift-4.0-cluster-api-0.0.0-alpha.4"
+  branch = "openshift-4.1-cluster-api-0.0.0-alpha.4"
 
 [[override]]
   name = "github.com/openshift/cluster-api-actuator-pkg"
-  branch = "master"
+  branch = "release-4.1"
 
 [[override]]
   name = "k8s.io/code-generator"

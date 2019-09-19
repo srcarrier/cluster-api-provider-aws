@@ -477,15 +477,16 @@
   version = "v1.4.2"
 
 [[projects]]
-  digest = "1:bec734dc3474457e6cfa4b2723db944c81d2b354ca3a55200ee551d7ad5d1eea"
+  branch = "release-4.1"
+  digest = "1:56398f7981973b24d73965fa1255c8a728d6a44a578e84e374e899217b83cc20"
   name = "github.com/openshift/api"
   packages = ["config/v1"]
   pruneopts = "T"
-  revision = "8e476cb7322e59919cbb6482fd076ec5a214df25"
+  revision = "9ea19f9dd57858bb3fd8ec7051a99ca5e1ae88d6"
 
 [[projects]]
-  branch = "openshift-4.0-cluster-api-0.0.0-alpha.4"
-  digest = "1:4700944f85b629a06b45a541430c0e6d3e7fe8bf1d757511448e27c7b0e5f701"
+  branch = "openshift-4.1-cluster-api-0.0.0-alpha.4"
+  digest = "1:73619f9a971bb6b4c577902ea24c5c708807154170e45aaeec15f0f9404df21f"
   name = "github.com/openshift/cluster-api"
   packages = [
     "pkg/apis",
@@ -501,15 +502,16 @@
     "pkg/controller/machine",
     "pkg/controller/node",
     "pkg/controller/noderefutil",
+    "pkg/drain",
     "pkg/errors",
     "pkg/util",
   ]
   pruneopts = "T"
-  revision = "0b649f443f830353db113f92aa86db2d4d34943a"
+  revision = "53b696be18ad63f7a21f603a4311044a9697807c"
 
 [[projects]]
-  branch = "master"
-  digest = "1:8ac51ce0543106c1f7ae943463db52e48e816420351886a14fcf799b5fd14be9"
+  branch = "release-4.1"
+  digest = "1:4e34274122a8409db992f8048735b5ade4a0310874d8a10f5fa5958e5d75a05f"
   name = "github.com/openshift/cluster-api-actuator-pkg"
   packages = [
     "pkg/e2e/autoscaler",
@@ -520,11 +522,11 @@
     "pkg/types",
   ]
   pruneopts = ""
-  revision = "dc2d4c7f4e839792f76b43e4844a5f87a09300b2"
+  revision = "4c3a3f8d76e964f8ab60f7b639fb833271cc087b"
 
 [[projects]]
-  branch = "master"
-  digest = "1:4e2b5e8a9ae67c0c8c25c6a93bbf5b710baac24b20e6843a81ee75f18ac57a85"
+  branch = "release-4.1"
+  digest = "1:3f5e1154f354133b5ed16a3c84f2cd629954c5e42b281bc9085bf395954c1c65"
   name = "github.com/openshift/cluster-autoscaler-operator"
   packages = [
     "pkg/apis",
@@ -532,15 +534,7 @@
     "pkg/apis/autoscaling/v1beta1",
   ]
   pruneopts = "T"
-  revision = "17350a84b40565851a3f1bd21c6f8a6763b8eacb"
-
-[[projects]]
-  branch = "master"
-  digest = "1:b79de44700bc7fc32b4f898e283754fa027616f87074be1cf65a7be5a961cc85"
-  name = "github.com/openshift/kubernetes-drain"
-  packages = ["."]
-  pruneopts = "T"
-  revision = "4b061affbd00bfc62036a5cd3a57493db6c94151"
+  revision = "dfdc9d81b23009362ba8b280df8e039466bf6f9f"
 
 [[projects]]
   branch = "master"
@@ -1020,6 +1014,52 @@
   packages = [
     "discovery",
     "dynamic",
+    "informers",
+    "informers/admissionregistration",
+    "informers/admissionregistration/v1alpha1",
+    "informers/admissionregistration/v1beta1",
+    "informers/apps",
+    "informers/apps/v1",
+    "informers/apps/v1beta1",
+    "informers/apps/v1beta2",
+    "informers/auditregistration",
+    "informers/auditregistration/v1alpha1",
+    "informers/autoscaling",
+    "informers/autoscaling/v1",
+    "informers/autoscaling/v2beta1",
+    "informers/autoscaling/v2beta2",
+    "informers/batch",
+    "informers/batch/v1",
+    "informers/batch/v1beta1",
+    "informers/batch/v2alpha1",
+    "informers/certificates",
+    "informers/certificates/v1beta1",
+    "informers/coordination",
+    "informers/coordination/v1beta1",
+    "informers/core",
+    "informers/core/v1",
+    "informers/events",
+    "informers/events/v1beta1",
+    "informers/extensions",
+    "informers/extensions/v1beta1",
+    "informers/internalinterfaces",
+    "informers/networking",
+    "informers/networking/v1",
+    "informers/policy",
+    "informers/policy/v1beta1",
+    "informers/rbac",
+    "informers/rbac/v1",
+    "informers/rbac/v1alpha1",
+    "informers/rbac/v1beta1",
+    "informers/scheduling",
+    "informers/scheduling/v1alpha1",
+    "informers/scheduling/v1beta1",
+    "informers/settings",
+    "informers/settings/v1alpha1",
+    "informers/storage",
+    "informers/storage/v1",
+    "informers/storage/v1alpha1",
+    "informers/storage/v1beta1",
     "kubernetes",
     "kubernetes/scheme",
     "kubernetes/typed/admissionregistration/v1alpha1",
@@ -1054,6 +1094,34 @@
     "kubernetes/typed/storage/v1",
     "kubernetes/typed/storage/v1alpha1",
     "kubernetes/typed/storage/v1beta1",
+    "listers/admissionregistration/v1alpha1",
+    "listers/admissionregistration/v1beta1",
+    "listers/apps/v1",
+    "listers/apps/v1beta1",
+    "listers/apps/v1beta2",
+    "listers/auditregistration/v1alpha1",
+    "listers/autoscaling/v1",
+    "listers/autoscaling/v2beta1",
+    "listers/autoscaling/v2beta2",
+    "listers/batch/v1",
+    "listers/batch/v1beta1",
+    "listers/batch/v2alpha1",
+    "listers/certificates/v1beta1",
+    "listers/coordination/v1beta1",
+    "listers/core/v1",
+    "listers/events/v1beta1",
+    "listers/extensions/v1beta1",
+    "listers/networking/v1",
+    "listers/policy/v1beta1",
+    "listers/rbac/v1",
+    "listers/rbac/v1alpha1",
+    "listers/rbac/v1beta1",
+    "listers/scheduling/v1alpha1",
+    "listers/scheduling/v1beta1",
+    "listers/settings/v1alpha1",
+    "listers/storage/v1",
+    "listers/storage/v1alpha1",
+    "listers/storage/v1beta1",
     "pkg/apis/clientauthentication",
     "pkg/apis/clientauthentication/v1alpha1",
     "pkg/apis/clientauthentication/v1beta1",
@@ -1258,7 +1326,6 @@
     "github.com/openshift/cluster-api-actuator-pkg/pkg/types",
     "github.com/openshift/cluster-api/pkg/apis",
     "github.com/openshift/cluster-api/pkg/apis/cluster/v1alpha1",
-    "github.com/openshift/cluster-api/pkg/apis/machine/common",
     "github.com/openshift/cluster-api/pkg/apis/machine/v1beta1",
     "github.com/openshift/cluster-api/pkg/controller/error",
     "github.com/openshift/cluster-api/pkg/controller/machine",
@@ -1274,16 +1341,13 @@
     "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1",
     "k8s.io/apimachinery/pkg/api/equality",
     "k8s.io/apimachinery/pkg/apis/meta/v1",
-    "k8s.io/apimachinery/pkg/apis/meta/v1/validation",
     "k8s.io/apimachinery/pkg/labels",
     "k8s.io/apimachinery/pkg/runtime",
     "k8s.io/apimachinery/pkg/runtime/schema",
     "k8s.io/apimachinery/pkg/runtime/serializer",
     "k8s.io/apimachinery/pkg/types",
     "k8s.io/apimachinery/pkg/util/errors",
-    "k8s.io/apimachinery/pkg/util/intstr",
     "k8s.io/apimachinery/pkg/util/uuid",
-    "k8s.io/apimachinery/pkg/util/validation/field",
     "k8s.io/apimachinery/pkg/util/wait",
     "k8s.io/client-go/kubernetes",
     "k8s.io/client-go/kubernetes/scheme",
