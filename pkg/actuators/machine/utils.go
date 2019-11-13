@@ -19,16 +19,15 @@ package machine
 import (
 	"fmt"
 	"net"
-
-	"github.com/golang/glog"
-
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/golang/glog"
 	machinev1 "github.com/openshift/cluster-api/pkg/apis/machine/v1beta1"
 	"golang.org/x/net/context"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	providerconfigv1 "sigs.k8s.io/cluster-api-provider-aws/pkg/apis/awsproviderconfig/v1beta1"
 	awsclient "sigs.k8s.io/cluster-api-provider-aws/pkg/client"
@@ -83,20 +82,11 @@ func getExistingInstances(machine *machinev1.Machine, client awsclient.Client) (
 }
 
 func getExistingInstanceByID(id string, client awsclient.Client) (*ec2.Instance, error) {
-	instance, err := getInstanceByID(id, client)
-	if err != nil {
-		return nil, err
-	}
-	if instance.State != nil {
-		if aws.StringValue(instance.State.Name) == ec2.InstanceStateNameTerminated {
-			return nil, fmt.Errorf("failed to getExistingInstanceByID for instance-id %s, instance is terminated", id)
-		}
-	}
-	return instance, nil
+	return getInstanceByID(id, client, existingInstanceStates())
 }
 
 // getInstanceByID returns the instance with the given ID if it exists.
-func getInstanceByID(id string, client awsclient.Client) (*ec2.Instance, error) {
+func getInstanceByID(id string, client awsclient.Client, instanceStateFilter []*string) (*ec2.Instance, error) {
 	if id == "" {
 		return nil, fmt.Errorf("instance-id not specified")
 	}
@@ -120,7 +110,28 @@ func getInstanceByID(id string, client awsclient.Client) (*ec2.Instance, error) 
 		return nil, fmt.Errorf("found %d instances for instance-id %s", len(reservation.Instances), id)
 	}
 
-	return reservation.Instances[0], nil
+	instance := reservation.Instances[0]
+
+	if len(instanceStateFilter) == 0 {
+		return instance, nil
+	}
+
+	if instance.State == nil {
+		return nil, fmt.Errorf("instance %s has nil state", id)
+	}
+
+	actualState := aws.StringValue(instance.State.Name)
+	for _, allowedState := range instanceStateFilter {
+		if aws.StringValue(allowedState) == actualState {
+			return instance, nil
+		}
+	}
+
+	allowedStates := make([]string, 0, len(instanceStateFilter))
+	for _, allowedState := range instanceStateFilter {
+		allowedStates = append(allowedStates, aws.StringValue(allowedState))
+	}
+	return instance, fmt.Errorf("instance %s state %q is not in %s", id, actualState, strings.Join(allowedStates, ", "))
 }
 
 // getInstances returns all instances that have a tag matching our machine name,
