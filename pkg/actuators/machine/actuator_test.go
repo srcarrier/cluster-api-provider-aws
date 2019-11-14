@@ -673,7 +673,7 @@ func TestAvailabiltyZone(t *testing.T) {
 							ImageId:    aws.String("ami-a9acbbd6"),
 							InstanceId: aws.String("i-02fcb933c5da7085c"),
 							State: &ec2.InstanceState{
-								Name: aws.String("Running"),
+								Name: aws.String(ec2.InstanceStateNameRunning),
 							},
 							LaunchTime: aws.Time(time.Now()),
 							Placement: &ec2.Placement{
@@ -692,7 +692,7 @@ func TestAvailabiltyZone(t *testing.T) {
 									ImageId:    aws.String("ami-a9acbbd6"),
 									InstanceId: aws.String("i-02fcb933c5da7085c"),
 									State: &ec2.InstanceState{
-										Name: aws.String("Running"),
+										Name: aws.String(ec2.InstanceStateNameRunning),
 										Code: aws.Int64(16),
 									},
 									LaunchTime: aws.Time(time.Now()),
@@ -821,7 +821,7 @@ func TestCreate(t *testing.T) {
 	mockAWSClient.EXPECT().DescribeSecurityGroups(gomock.Any()).Return(nil, fmt.Errorf("describeSecurityGroups error")).AnyTimes()
 	mockAWSClient.EXPECT().DescribeAvailabilityZones(gomock.Any()).Return(nil, fmt.Errorf("describeAvailabilityZones error")).AnyTimes()
 	mockAWSClient.EXPECT().DescribeImages(gomock.Any()).Return(nil, fmt.Errorf("describeImages error")).AnyTimes()
-	mockAWSClient.EXPECT().DescribeInstances(gomock.Any()).Return(stubDescribeInstancesOutput("ami-a9acbbd6", "i-02fcb933c5da7085c"), nil).AnyTimes()
+	mockAWSClient.EXPECT().DescribeInstances(gomock.Any()).Return(stubDescribeInstancesOutput("ami-a9acbbd6", "i-02fcb933c5da7085c", ec2.InstanceStateNameRunning), nil).AnyTimes()
 	mockAWSClient.EXPECT().TerminateInstances(gomock.Any()).Return(&ec2.TerminateInstancesOutput{}, nil).AnyTimes()
 	mockAWSClient.EXPECT().RunInstances(gomock.Any()).Return(stubReservation("ami-a9acbbd6", "i-02fcb933c5da7085c"), nil).AnyTimes()
 	mockAWSClient.EXPECT().RegisterInstancesWithLoadBalancer(gomock.Any()).Return(nil, nil).AnyTimes()
@@ -1192,7 +1192,7 @@ func TestGetMachineInstances(t *testing.T) {
 				}
 
 				mockAWSClient.EXPECT().DescribeInstances(request).Return(
-					stubDescribeInstancesOutput(imageID, instanceID),
+					stubDescribeInstancesOutput(imageID, instanceID, ec2.InstanceStateNameRunning),
 					nil,
 				).Times(1)
 
@@ -1213,7 +1213,7 @@ func TestGetMachineInstances(t *testing.T) {
 				}
 
 				mockAWSClient.EXPECT().DescribeInstances(request).Return(
-					stubDescribeInstancesOutput(imageID, instanceID),
+					stubDescribeInstancesOutput(imageID, instanceID, ec2.InstanceStateNameRunning),
 					nil,
 				).Times(1)
 
@@ -1234,7 +1234,7 @@ func TestGetMachineInstances(t *testing.T) {
 				}
 
 				mockAWSClient.EXPECT().DescribeInstances(request).Return(
-					stubTerminatedInstanceDescribeInstancesOutput(imageID, instanceID),
+					stubDescribeInstancesOutput(imageID, instanceID, ec2.InstanceStateNameTerminated),
 					nil,
 				).Times(1)
 
@@ -1250,7 +1250,7 @@ func TestGetMachineInstances(t *testing.T) {
 				}
 
 				mockAWSClient.EXPECT().DescribeInstances(request2).Return(
-					stubTerminatedInstanceDescribeInstancesOutput(imageID, instanceID),
+					stubDescribeInstancesOutput(imageID, instanceID, ec2.InstanceStateNameTerminated),
 					nil,
 				).Times(1)
 
