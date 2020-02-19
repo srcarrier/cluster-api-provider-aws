@@ -138,6 +138,24 @@ func TestMachineEvents(t *testing.T) {
 			},
 			event: "Normal Deleted Deleted machine aws-actuator-testing-machine",
 		},
+		{
+			name:                    "Delete machine event succeed with pending instances",
+			machine:                 machine,
+			describeInstancesOutput: stubDescribeInstancesOutput("ami-a9acbbd6", "i-02fcb933c5da7085c", ec2.InstanceStateNamePending),
+			operation: func(actuator *Actuator, cluster *clusterv1.Cluster, machine *machinev1.Machine) {
+				actuator.DeleteMachine(cluster, machine)
+			},
+			event: "Normal Deleted Deleted machine aws-actuator-testing-machine",
+		},
+		{
+			name:                    "Delete machine event succeed with stopped instances",
+			machine:                 machine,
+			describeInstancesOutput: stubDescribeInstancesOutput("ami-a9acbbd6", "i-02fcb933c5da7085c", ec2.InstanceStateNameStopped),
+			operation: func(actuator *Actuator, cluster *clusterv1.Cluster, machine *machinev1.Machine) {
+				actuator.DeleteMachine(cluster, machine)
+			},
+			event: "Normal Deleted Deleted machine aws-actuator-testing-machine",
+		},
 	}
 
 	for _, tc := range cases {
@@ -165,7 +183,7 @@ func TestMachineEvents(t *testing.T) {
 
 			mockAWSClient.EXPECT().RunInstances(gomock.Any()).Return(stubReservation("ami-a9acbbd6", "i-02fcb933c5da7085c"), tc.runInstancesErr).AnyTimes()
 			if tc.describeInstancesOutput == nil {
-				mockAWSClient.EXPECT().DescribeInstances(gomock.Any()).Return(stubDescribeInstancesOutput("ami-a9acbbd6", "i-02fcb933c5da7085c"), tc.describeInstancesErr).AnyTimes()
+				mockAWSClient.EXPECT().DescribeInstances(gomock.Any()).Return(stubDescribeInstancesOutput("ami-a9acbbd6", "i-02fcb933c5da7085c", ec2.InstanceStateNameRunning), tc.describeInstancesErr).AnyTimes()
 			} else {
 				mockAWSClient.EXPECT().DescribeInstances(gomock.Any()).Return(tc.describeInstancesOutput, tc.describeInstancesErr).AnyTimes()
 			}
@@ -542,7 +560,7 @@ func TestActuator(t *testing.T) {
 			mockAWSClient.EXPECT().RunInstances(gomock.Any()).Return(stubReservation("ami-a9acbbd6", "i-02fcb933c5da7085c"), tc.runInstancesErr).AnyTimes()
 
 			if tc.describeInstancesOutput == nil {
-				mockAWSClient.EXPECT().DescribeInstances(gomock.Any()).Return(stubDescribeInstancesOutput("ami-a9acbbd6", "i-02fcb933c5da7085c"), tc.describeInstancesErr).AnyTimes()
+				mockAWSClient.EXPECT().DescribeInstances(gomock.Any()).Return(stubDescribeInstancesOutput("ami-a9acbbd6", "i-02fcb933c5da7085c", ec2.InstanceStateNameRunning), tc.describeInstancesErr).AnyTimes()
 			} else {
 				mockAWSClient.EXPECT().DescribeInstances(gomock.Any()).Return(tc.describeInstancesOutput, tc.describeInstancesErr).AnyTimes()
 			}
