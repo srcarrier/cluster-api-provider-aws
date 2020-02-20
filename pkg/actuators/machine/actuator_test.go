@@ -1,27 +1,30 @@
 package machine
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/golang/mock/gomock"
-	"github.com/stretchr/testify/assert"
-	"k8s.io/client-go/tools/record"
-
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/golang/mock/gomock"
 	clusterv1 "github.com/openshift/cluster-api/pkg/apis/cluster/v1alpha1"
 	machinev1 "github.com/openshift/cluster-api/pkg/apis/machine/v1beta1"
+	machineapierrors "github.com/openshift/cluster-api/pkg/errors"
+	"github.com/stretchr/testify/assert"
+	apiv1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/pointer"
 	providerconfigv1 "sigs.k8s.io/cluster-api-provider-aws/pkg/apis/awsproviderconfig/v1beta1"
 	awsclient "sigs.k8s.io/cluster-api-provider-aws/pkg/client"
 	mockaws "sigs.k8s.io/cluster-api-provider-aws/pkg/client/mock"
-
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -77,7 +80,7 @@ func TestMachineEvents(t *testing.T) {
 			operation: func(actuator *Actuator, cluster *clusterv1.Cluster, machine *machinev1.Machine) {
 				actuator.CreateMachine(cluster, machine)
 			},
-			event: "Warning FailedCreate InvalidConfiguration",
+			event: "Warning FailedCreate error decoding MachineProviderConfig: unable to find machine provider config: Spec.ProviderSpec.Value is not set",
 		},
 		{
 			name:    "Create machine event failed (error creating aws service)",
@@ -86,7 +89,7 @@ func TestMachineEvents(t *testing.T) {
 			operation: func(actuator *Actuator, cluster *clusterv1.Cluster, machine *machinev1.Machine) {
 				actuator.CreateMachine(cluster, machine)
 			},
-			event: "Warning FailedCreate CreateError",
+			event: "Warning FailedCreate error creating aws service",
 		},
 		{
 			name:            "Create machine event failed (error launching instance)",
@@ -95,16 +98,16 @@ func TestMachineEvents(t *testing.T) {
 			operation: func(actuator *Actuator, cluster *clusterv1.Cluster, machine *machinev1.Machine) {
 				actuator.CreateMachine(cluster, machine)
 			},
-			event: "Warning FailedCreate CreateError",
+			event: "Warning FailedCreate error creating EC2 instance: error",
 		},
 		{
 			name:    "Create machine event failed (error updating load balancers)",
 			machine: machine,
-			lbErr:   fmt.Errorf("error"),
+			lbErr:   fmt.Errorf("lb error"),
 			operation: func(actuator *Actuator, cluster *clusterv1.Cluster, machine *machinev1.Machine) {
 				actuator.CreateMachine(cluster, machine)
 			},
-			event: "Warning FailedCreate CreateError",
+			event: "Warning FailedCreate lb error",
 		},
 		{
 			name:    "Create machine event succeed",
@@ -128,7 +131,7 @@ func TestMachineEvents(t *testing.T) {
 			operation: func(actuator *Actuator, cluster *clusterv1.Cluster, machine *machinev1.Machine) {
 				actuator.DeleteMachine(cluster, machine)
 			},
-			event: "Warning FailedDelete InvalidConfiguration",
+			event: "Warning FailedDelete error decoding MachineProviderConfig: unable to find machine provider config: Spec.ProviderSpec.Value is not set",
 		},
 		{
 			name:    "Delete machine event succeed",
@@ -670,7 +673,7 @@ func TestAvailabiltyZone(t *testing.T) {
 							ImageId:    aws.String("ami-a9acbbd6"),
 							InstanceId: aws.String("i-02fcb933c5da7085c"),
 							State: &ec2.InstanceState{
-								Name: aws.String("Running"),
+								Name: aws.String(ec2.InstanceStateNameRunning),
 							},
 							LaunchTime: aws.Time(time.Now()),
 							Placement: &ec2.Placement{
@@ -689,7 +692,7 @@ func TestAvailabiltyZone(t *testing.T) {
 									ImageId:    aws.String("ami-a9acbbd6"),
 									InstanceId: aws.String("i-02fcb933c5da7085c"),
 									State: &ec2.InstanceState{
-										Name: aws.String("Running"),
+										Name: aws.String(ec2.InstanceStateNameRunning),
 										Code: aws.Int64(16),
 									},
 									LaunchTime: aws.Time(time.Now()),
@@ -726,4 +729,570 @@ func (m placementMatcher) Matches(input interface{}) bool {
 
 func (m placementMatcher) String() string {
 	return fmt.Sprintf("is placement: %#v", m.placement)
+}
+
+func TestGetUserData(t *testing.T) {
+	machine, err := stubMachine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerConfig := stubProviderConfig()
+	codec, err := providerconfigv1.NewCodec()
+	if err != nil {
+		t.Fatalf("unable to build codec: %v", err)
+	}
+
+	testCases := []struct {
+		secret *apiv1.Secret
+		error  error
+	}{
+		{
+			secret: &apiv1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      userDataSecretName,
+					Namespace: defaultNamespace,
+				},
+				Data: map[string][]byte{
+					userDataSecretKey: []byte(userDataBlob),
+				},
+			},
+			error: nil,
+		},
+		{
+			secret: &apiv1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "notFound",
+					Namespace: defaultNamespace,
+				},
+				Data: map[string][]byte{
+					userDataSecretKey: []byte(userDataBlob),
+				},
+			},
+			error: &machineapierrors.MachineError{},
+		},
+		{
+			secret: &apiv1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      userDataSecretName,
+					Namespace: defaultNamespace,
+				},
+				Data: map[string][]byte{
+					"badKey": []byte(userDataBlob),
+				},
+			},
+			error: &machineapierrors.MachineError{},
+		},
+	}
+
+	for _, tc := range testCases {
+		params := ActuatorParams{
+			Client: fake.NewFakeClient(tc.secret),
+			Codec:  codec,
+			EventRecorder: &record.FakeRecorder{
+				Events: make(chan string, 1),
+			},
+		}
+		actuator, err := NewActuator(params)
+		if err != nil {
+			t.Fatalf("Could not create AWS machine actuator: %v", err)
+		}
+		userData, err := actuator.getUserData(machine, providerConfig)
+		if tc.error != nil {
+			if err == nil {
+				t.Fatal("Expected error")
+			}
+			_, expectMachineError := tc.error.(*machineapierrors.MachineError)
+			_, gotMachineError := err.(*machineapierrors.MachineError)
+			if expectMachineError && !gotMachineError || !expectMachineError && gotMachineError {
+				t.Errorf("Expected %T, got: %T", tc.error, err)
+			}
+		} else {
+			if compare := bytes.Compare(userData, []byte(userDataBlob)); compare != 0 {
+				t.Errorf("Expected: %v, got: %v", []byte(userDataBlob), userData)
+			}
+		}
+	}
+}
+
+func TestCreate(t *testing.T) {
+	// mock aws API calls
+	mockCtrl := gomock.NewController(t)
+	mockAWSClient := mockaws.NewMockClient(mockCtrl)
+	mockAWSClient.EXPECT().DescribeSecurityGroups(gomock.Any()).Return(nil, fmt.Errorf("describeSecurityGroups error")).AnyTimes()
+	mockAWSClient.EXPECT().DescribeAvailabilityZones(gomock.Any()).Return(nil, fmt.Errorf("describeAvailabilityZones error")).AnyTimes()
+	mockAWSClient.EXPECT().DescribeImages(gomock.Any()).Return(nil, fmt.Errorf("describeImages error")).AnyTimes()
+	mockAWSClient.EXPECT().DescribeInstances(gomock.Any()).Return(stubDescribeInstancesOutput("ami-a9acbbd6", "i-02fcb933c5da7085c", ec2.InstanceStateNameRunning), nil).AnyTimes()
+	mockAWSClient.EXPECT().TerminateInstances(gomock.Any()).Return(&ec2.TerminateInstancesOutput{}, nil).AnyTimes()
+	mockAWSClient.EXPECT().RunInstances(gomock.Any()).Return(stubReservation("ami-a9acbbd6", "i-02fcb933c5da7085c"), nil).AnyTimes()
+	mockAWSClient.EXPECT().RegisterInstancesWithLoadBalancer(gomock.Any()).Return(nil, nil).AnyTimes()
+	mockAWSClient.EXPECT().ELBv2DescribeLoadBalancers(gomock.Any()).Return(stubDescribeLoadBalancersOutput(), nil)
+	mockAWSClient.EXPECT().ELBv2DescribeTargetGroups(gomock.Any()).Return(stubDescribeTargetGroupsOutput(), nil).AnyTimes()
+	mockAWSClient.EXPECT().ELBv2RegisterTargets(gomock.Any()).Return(nil, nil).AnyTimes()
+
+	testCases := []struct {
+		testcase             string
+		providerConfig       *providerconfigv1.AWSMachineProviderConfig
+		userDataSecret       *corev1.Secret
+		awsCredentialsSecret *corev1.Secret
+		error                error
+	}{
+		{
+			testcase: "Create succeed",
+			providerConfig: &providerconfigv1.AWSMachineProviderConfig{
+				AMI: providerconfigv1.AWSResourceReference{
+					ID: aws.String("ami-a9acbbd6"),
+				},
+				CredentialsSecret: &corev1.LocalObjectReference{
+					Name: awsCredentialsSecretName,
+				},
+				InstanceType: "m4.xlarge",
+				Placement: providerconfigv1.Placement{
+					Region:           region,
+					AvailabilityZone: defaultAvailabilityZone,
+				},
+				Subnet: providerconfigv1.AWSResourceReference{
+					ID: aws.String("subnet-0e56b13a64ff8a941"),
+				},
+				IAMInstanceProfile: &providerconfigv1.AWSResourceReference{
+					ID: aws.String("openshift_master_launch_instances"),
+				},
+				KeyName: aws.String(keyName),
+				UserDataSecret: &corev1.LocalObjectReference{
+					Name: userDataSecretName,
+				},
+				Tags: []providerconfigv1.TagSpecification{
+					{Name: "openshift-node-group-config", Value: "node-config-master"},
+					{Name: "host-type", Value: "master"},
+					{Name: "sub-host-type", Value: "default"},
+				},
+				SecurityGroups: []providerconfigv1.AWSResourceReference{
+					{ID: aws.String("sg-00868b02fbe29de17")},
+					{ID: aws.String("sg-0a4658991dc5eb40a")},
+					{ID: aws.String("sg-009a70e28fa4ba84e")},
+					{ID: aws.String("sg-07323d56fb932c84c")},
+					{ID: aws.String("sg-08b1ffd32874d59a2")},
+				},
+				PublicIP: aws.Bool(true),
+				LoadBalancers: []providerconfigv1.LoadBalancerReference{
+					{
+						Name: "cluster-con",
+						Type: providerconfigv1.ClassicLoadBalancerType,
+					},
+					{
+						Name: "cluster-ext",
+						Type: providerconfigv1.ClassicLoadBalancerType,
+					},
+					{
+						Name: "cluster-int",
+						Type: providerconfigv1.ClassicLoadBalancerType,
+					},
+					{
+						Name: "cluster-net-lb",
+						Type: providerconfigv1.NetworkLoadBalancerType,
+					},
+				},
+			},
+			userDataSecret:       stubUserDataSecret(),
+			awsCredentialsSecret: stubAwsCredentialsSecret(),
+			error:                nil,
+		},
+		{
+			testcase: "Bad userData",
+			providerConfig: &providerconfigv1.AWSMachineProviderConfig{
+				AMI: providerconfigv1.AWSResourceReference{
+					ID: aws.String("ami-a9acbbd6"),
+				},
+				CredentialsSecret: &corev1.LocalObjectReference{
+					Name: awsCredentialsSecretName,
+				},
+				InstanceType: "m4.xlarge",
+				Placement: providerconfigv1.Placement{
+					Region:           region,
+					AvailabilityZone: defaultAvailabilityZone,
+				},
+				Subnet: providerconfigv1.AWSResourceReference{
+					ID: aws.String("subnet-0e56b13a64ff8a941"),
+				},
+				IAMInstanceProfile: &providerconfigv1.AWSResourceReference{
+					ID: aws.String("openshift_master_launch_instances"),
+				},
+				KeyName: aws.String(keyName),
+				UserDataSecret: &corev1.LocalObjectReference{
+					Name: userDataSecretName,
+				},
+				Tags: []providerconfigv1.TagSpecification{
+					{Name: "openshift-node-group-config", Value: "node-config-master"},
+					{Name: "host-type", Value: "master"},
+					{Name: "sub-host-type", Value: "default"},
+				},
+				SecurityGroups: []providerconfigv1.AWSResourceReference{
+					{ID: aws.String("sg-00868b02fbe29de17")},
+					{ID: aws.String("sg-0a4658991dc5eb40a")},
+					{ID: aws.String("sg-009a70e28fa4ba84e")},
+					{ID: aws.String("sg-07323d56fb932c84c")},
+					{ID: aws.String("sg-08b1ffd32874d59a2")},
+				},
+				PublicIP: aws.Bool(true),
+				LoadBalancers: []providerconfigv1.LoadBalancerReference{
+					{
+						Name: "cluster-con",
+						Type: providerconfigv1.ClassicLoadBalancerType,
+					},
+					{
+						Name: "cluster-ext",
+						Type: providerconfigv1.ClassicLoadBalancerType,
+					},
+					{
+						Name: "cluster-int",
+						Type: providerconfigv1.ClassicLoadBalancerType,
+					},
+					{
+						Name: "cluster-net-lb",
+						Type: providerconfigv1.NetworkLoadBalancerType,
+					},
+				},
+			},
+			userDataSecret: &apiv1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      userDataSecretName,
+					Namespace: defaultNamespace,
+				},
+				Data: map[string][]byte{
+					"badKey": []byte(userDataBlob),
+				},
+			},
+			awsCredentialsSecret: stubAwsCredentialsSecret(),
+			error:                &machineapierrors.MachineError{},
+		},
+		{
+			testcase: "Failed security groups return invalid config machine error",
+			providerConfig: &providerconfigv1.AWSMachineProviderConfig{
+				AMI: providerconfigv1.AWSResourceReference{
+					ID: aws.String("ami-a9acbbd6"),
+				},
+				CredentialsSecret: &corev1.LocalObjectReference{
+					Name: awsCredentialsSecretName,
+				},
+				InstanceType: "m4.xlarge",
+				Placement: providerconfigv1.Placement{
+					Region:           region,
+					AvailabilityZone: defaultAvailabilityZone,
+				},
+				Subnet: providerconfigv1.AWSResourceReference{
+					ID: aws.String("subnet-0e56b13a64ff8a941"),
+				},
+				IAMInstanceProfile: &providerconfigv1.AWSResourceReference{
+					ID: aws.String("openshift_master_launch_instances"),
+				},
+				KeyName: aws.String(keyName),
+				UserDataSecret: &corev1.LocalObjectReference{
+					Name: userDataSecretName,
+				},
+				Tags: []providerconfigv1.TagSpecification{
+					{Name: "openshift-node-group-config", Value: "node-config-master"},
+					{Name: "host-type", Value: "master"},
+					{Name: "sub-host-type", Value: "default"},
+				},
+				SecurityGroups: []providerconfigv1.AWSResourceReference{{
+					Filters: []providerconfigv1.Filter{{
+						Name:   "tag:Name",
+						Values: []string{fmt.Sprintf("%s-%s-sg", clusterID, "role")},
+					}},
+				}},
+				PublicIP: aws.Bool(true),
+			},
+			userDataSecret:       stubUserDataSecret(),
+			awsCredentialsSecret: stubAwsCredentialsSecret(),
+			error:                &machineapierrors.MachineError{},
+		},
+		{
+			testcase: "Failed Availability zones return invalid config machine error",
+			providerConfig: &providerconfigv1.AWSMachineProviderConfig{
+				AMI: providerconfigv1.AWSResourceReference{
+					ID: aws.String("ami-a9acbbd6"),
+				},
+				CredentialsSecret: &corev1.LocalObjectReference{
+					Name: awsCredentialsSecretName,
+				},
+				InstanceType: "m4.xlarge",
+				Placement: providerconfigv1.Placement{
+					Region:           region,
+					AvailabilityZone: defaultAvailabilityZone,
+				},
+				Subnet: providerconfigv1.AWSResourceReference{
+					Filters: []providerconfigv1.Filter{{
+						Name:   "tag:Name",
+						Values: []string{fmt.Sprintf("%s-private-%s", clusterID, "az")},
+					}},
+				},
+				IAMInstanceProfile: &providerconfigv1.AWSResourceReference{
+					ID: aws.String("openshift_master_launch_instances"),
+				},
+				KeyName: aws.String(keyName),
+				UserDataSecret: &corev1.LocalObjectReference{
+					Name: userDataSecretName,
+				},
+				Tags: []providerconfigv1.TagSpecification{
+					{Name: "openshift-node-group-config", Value: "node-config-master"},
+					{Name: "host-type", Value: "master"},
+					{Name: "sub-host-type", Value: "default"},
+				},
+				SecurityGroups: []providerconfigv1.AWSResourceReference{
+					{ID: aws.String("sg-00868b02fbe29de17")},
+					{ID: aws.String("sg-0a4658991dc5eb40a")},
+					{ID: aws.String("sg-009a70e28fa4ba84e")},
+					{ID: aws.String("sg-07323d56fb932c84c")},
+					{ID: aws.String("sg-08b1ffd32874d59a2")},
+				},
+				PublicIP: aws.Bool(true),
+			},
+			userDataSecret:       stubUserDataSecret(),
+			awsCredentialsSecret: stubAwsCredentialsSecret(),
+			error:                &machineapierrors.MachineError{},
+		},
+		{
+			testcase: "Failed BlockDevices return invalid config machine error",
+			providerConfig: &providerconfigv1.AWSMachineProviderConfig{
+				AMI: providerconfigv1.AWSResourceReference{
+					ID: aws.String("ami-a9acbbd6"),
+				},
+				CredentialsSecret: &corev1.LocalObjectReference{
+					Name: awsCredentialsSecretName,
+				},
+				InstanceType: "m4.xlarge",
+				Placement: providerconfigv1.Placement{
+					Region:           region,
+					AvailabilityZone: defaultAvailabilityZone,
+				},
+				BlockDevices: []providerconfigv1.BlockDeviceMappingSpec{
+					{
+						EBS: &providerconfigv1.EBSBlockDeviceSpec{
+							VolumeType: pointer.StringPtr("type"),
+							VolumeSize: pointer.Int64Ptr(int64(1)),
+							Iops:       pointer.Int64Ptr(int64(1)),
+						},
+					},
+				},
+				Subnet: providerconfigv1.AWSResourceReference{
+					ID: aws.String("subnet-0e56b13a64ff8a941"),
+				},
+				IAMInstanceProfile: &providerconfigv1.AWSResourceReference{
+					ID: aws.String("openshift_master_launch_instances"),
+				},
+				KeyName: aws.String(keyName),
+				UserDataSecret: &corev1.LocalObjectReference{
+					Name: userDataSecretName,
+				},
+				Tags: []providerconfigv1.TagSpecification{
+					{Name: "openshift-node-group-config", Value: "node-config-master"},
+					{Name: "host-type", Value: "master"},
+					{Name: "sub-host-type", Value: "default"},
+				},
+				SecurityGroups: []providerconfigv1.AWSResourceReference{
+					{ID: aws.String("sg-00868b02fbe29de17")},
+					{ID: aws.String("sg-0a4658991dc5eb40a")},
+					{ID: aws.String("sg-009a70e28fa4ba84e")},
+					{ID: aws.String("sg-07323d56fb932c84c")},
+					{ID: aws.String("sg-08b1ffd32874d59a2")},
+				},
+				PublicIP: aws.Bool(true),
+			},
+			userDataSecret:       stubUserDataSecret(),
+			awsCredentialsSecret: stubAwsCredentialsSecret(),
+			error:                &machineapierrors.MachineError{},
+		},
+	}
+
+	for _, tc := range testCases {
+		// create fake resources
+		t.Logf("testCase: %v", tc.testcase)
+		codec, err := providerconfigv1.NewCodec()
+		if err != nil {
+			t.Fatalf("unable to build codec: %v", err)
+		}
+		encodedProviderConfig, err := codec.EncodeProviderSpec(tc.providerConfig)
+		if err != nil {
+			t.Fatalf("Unexpected error")
+		}
+		machine, err := stubMachine()
+		if err != nil {
+			t.Fatal(err)
+		}
+		machine.Spec.ProviderSpec = *encodedProviderConfig
+		fakeClient := fake.NewFakeClientWithScheme(scheme.Scheme, machine, tc.awsCredentialsSecret, tc.userDataSecret)
+
+		// create actuator
+		params := ActuatorParams{
+			Client: fakeClient,
+			AwsClientBuilder: func(client client.Client, secretName, namespace, region string) (awsclient.Client, error) {
+				return mockAWSClient, nil
+			},
+			Codec: codec,
+			// use empty recorder dropping any event recorded
+			EventRecorder: &record.FakeRecorder{},
+		}
+		actuator, err := NewActuator(params)
+		if err != nil {
+			t.Fatalf("Could not create AWS machine actuator: %v", err)
+		}
+
+		// test create
+		err = actuator.Create(context.TODO(), nil, machine)
+		if tc.error != nil {
+			if err == nil {
+				t.Fatalf("Expected error")
+			}
+			_, expectMachineError := tc.error.(*machineapierrors.MachineError)
+			_, gotMachineError := err.(*machineapierrors.MachineError)
+			if expectMachineError && !gotMachineError || !expectMachineError && gotMachineError {
+				t.Fatalf("Expected %T, got: %T", tc.error, err)
+			}
+		} else if err != nil {
+			t.Fatalf("Unexpected error")
+		}
+	}
+}
+
+func TestGetMachineInstances(t *testing.T) {
+	clusterID := "aws-actuator-cluster"
+	instanceID := "i-02fa4197109214b46"
+	imageID := "ami-a9acbbd6"
+
+	machine, err := stubMachine()
+	if err != nil {
+		t.Fatalf("unable to build stub machine: %v", err)
+	}
+
+	codec, err := providerconfigv1.NewCodec()
+	if err != nil {
+		t.Fatalf("unable to build codec: %v", err)
+	}
+
+	testCases := []struct {
+		testcase       string
+		providerStatus providerconfigv1.AWSMachineProviderStatus
+		awsClientFunc  func(*gomock.Controller) awsclient.Client
+		exists         bool
+	}{
+		{
+			testcase:       "empty-status-search-by-tag",
+			providerStatus: providerconfigv1.AWSMachineProviderStatus{},
+			awsClientFunc: func(ctrl *gomock.Controller) awsclient.Client {
+				mockAWSClient := mockaws.NewMockClient(ctrl)
+
+				request := &ec2.DescribeInstancesInput{
+					Filters: []*ec2.Filter{
+						{
+							Name:   awsTagFilter("Name"),
+							Values: aws.StringSlice([]string{machine.Name}),
+						},
+
+						clusterFilter(clusterID),
+					},
+				}
+
+				mockAWSClient.EXPECT().DescribeInstances(request).Return(
+					stubDescribeInstancesOutput(imageID, instanceID, ec2.InstanceStateNameRunning),
+					nil,
+				).Times(1)
+
+				return mockAWSClient
+			},
+			exists: true,
+		},
+		{
+			testcase: "has-status-search-by-id-running",
+			providerStatus: providerconfigv1.AWSMachineProviderStatus{
+				InstanceID: aws.String(instanceID),
+			},
+			awsClientFunc: func(ctrl *gomock.Controller) awsclient.Client {
+				mockAWSClient := mockaws.NewMockClient(ctrl)
+
+				request := &ec2.DescribeInstancesInput{
+					InstanceIds: aws.StringSlice([]string{instanceID}),
+				}
+
+				mockAWSClient.EXPECT().DescribeInstances(request).Return(
+					stubDescribeInstancesOutput(imageID, instanceID, ec2.InstanceStateNameRunning),
+					nil,
+				).Times(1)
+
+				return mockAWSClient
+			},
+			exists: true,
+		},
+		{
+			testcase: "has-status-search-by-id-terminated",
+			providerStatus: providerconfigv1.AWSMachineProviderStatus{
+				InstanceID: aws.String(instanceID),
+			},
+			awsClientFunc: func(ctrl *gomock.Controller) awsclient.Client {
+				mockAWSClient := mockaws.NewMockClient(ctrl)
+
+				first := mockAWSClient.EXPECT().DescribeInstances(&ec2.DescribeInstancesInput{
+					InstanceIds: aws.StringSlice([]string{instanceID}),
+				}).Return(
+					stubDescribeInstancesOutput(imageID, instanceID, ec2.InstanceStateNameTerminated),
+					nil,
+				).Times(1)
+
+				mockAWSClient.EXPECT().DescribeInstances(&ec2.DescribeInstancesInput{
+					Filters: []*ec2.Filter{
+						{
+							Name:   awsTagFilter("Name"),
+							Values: aws.StringSlice([]string{machine.Name}),
+						},
+
+						clusterFilter(clusterID),
+					},
+				}).Return(
+					stubDescribeInstancesOutput(imageID, instanceID, ec2.InstanceStateNameTerminated),
+					nil,
+				).Times(1).After(first)
+
+				return mockAWSClient
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.testcase, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			awsStatusRaw, err := codec.EncodeProviderStatus(&tc.providerStatus)
+			if err != nil {
+				t.Errorf("Error encoding ProviderStatus: %v", err)
+			}
+
+			machineCopy := machine.DeepCopy()
+			machineCopy.Status.ProviderStatus = awsStatusRaw
+
+			awsClient := tc.awsClientFunc(ctrl)
+
+			params := ActuatorParams{
+				Codec:            codec,
+				AwsClientBuilder: awsClientBuilderFunc(awsClient),
+			}
+
+			actuator, err := NewActuator(params)
+			if err != nil {
+				t.Errorf("Error creating Actuator: %v", err)
+			}
+
+			instances, err := actuator.getMachineInstances(nil, machineCopy)
+			if err != nil {
+				t.Errorf("Unexpected error from getMachineInstances: %v", err)
+			}
+			if tc.exists != (len(instances) > 0) {
+				t.Errorf("Expected instance exists: %t, got instances: %v", tc.exists, instances)
+			}
+		})
+	}
+}
+
+func awsClientBuilderFunc(c awsclient.Client) awsclient.AwsClientBuilderFuncType {
+	return func(_ client.Client, _, _, _ string) (awsclient.Client, error) {
+		return c, nil
+	}
 }

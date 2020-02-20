@@ -19,20 +19,31 @@ package machine
 import (
 	"fmt"
 	"net"
-
-	"github.com/golang/glog"
-
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/golang/glog"
 	machinev1 "github.com/openshift/cluster-api/pkg/apis/machine/v1beta1"
 	"golang.org/x/net/context"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	providerconfigv1 "sigs.k8s.io/cluster-api-provider-aws/pkg/apis/awsproviderconfig/v1beta1"
 	awsclient "sigs.k8s.io/cluster-api-provider-aws/pkg/client"
 )
+
+// existingInstanceStates returns the list of states an EC2 instance can be in
+// while being considered "existing", i.e. mostly anything but "Terminated".
+func existingInstanceStates() []*string {
+	return []*string{
+		aws.String(ec2.InstanceStateNameRunning),
+		aws.String(ec2.InstanceStateNamePending),
+		aws.String(ec2.InstanceStateNameStopped),
+		aws.String(ec2.InstanceStateNameStopping),
+		aws.String(ec2.InstanceStateNameShuttingDown),
+	}
+}
 
 // getRunningFromInstances returns all running instances from a list of instances.
 func getRunningFromInstances(instances []*ec2.Instance) []*ec2.Instance {
@@ -52,20 +63,75 @@ func getStoppedInstances(machine *machinev1.Machine, client awsclient.Client) ([
 	return getInstances(machine, client, stoppedInstanceStateFilter)
 }
 
+// getExistingInstances returns all instances not terminated
 func getExistingInstances(machine *machinev1.Machine, client awsclient.Client) ([]*ec2.Instance, error) {
-	return getInstances(machine, client, []*string{
-		aws.String(ec2.InstanceStateNameRunning),
-		aws.String(ec2.InstanceStateNamePending),
-		aws.String(ec2.InstanceStateNameStopped),
-		aws.String(ec2.InstanceStateNameStopping),
-		aws.String(ec2.InstanceStateNameShuttingDown),
-	})
+	return getInstances(machine, client, existingInstanceStates())
+}
+
+func getExistingInstanceByID(id string, client awsclient.Client) (*ec2.Instance, error) {
+	return getInstanceByID(id, client, existingInstanceStates())
+}
+
+func instanceHasAllowedState(instance *ec2.Instance, instanceStateFilter []*string) error {
+	if instance.InstanceId == nil {
+		return fmt.Errorf("instance has nil ID")
+	}
+
+	if instance.State == nil {
+		return fmt.Errorf("instance %s has nil state", *instance.InstanceId)
+	}
+
+	if len(instanceStateFilter) == 0 {
+		return nil
+	}
+
+	actualState := aws.StringValue(instance.State.Name)
+	for _, allowedState := range instanceStateFilter {
+		if aws.StringValue(allowedState) == actualState {
+			return nil
+		}
+	}
+
+	allowedStates := make([]string, 0, len(instanceStateFilter))
+	for _, allowedState := range instanceStateFilter {
+		allowedStates = append(allowedStates, aws.StringValue(allowedState))
+	}
+	return fmt.Errorf("instance %s state %q is not in %s", *instance.InstanceId, actualState, strings.Join(allowedStates, ", "))
+}
+
+// getInstanceByID returns the instance with the given ID if it exists.
+func getInstanceByID(id string, client awsclient.Client, instanceStateFilter []*string) (*ec2.Instance, error) {
+	if id == "" {
+		return nil, fmt.Errorf("instance-id not specified")
+	}
+
+	request := &ec2.DescribeInstancesInput{
+		InstanceIds: aws.StringSlice([]string{id}),
+	}
+
+	result, err := client.DescribeInstances(request)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(result.Reservations) != 1 {
+		return nil, fmt.Errorf("found %d reservations for instance-id %s", len(result.Reservations), id)
+	}
+
+	reservation := result.Reservations[0]
+
+	if len(reservation.Instances) != 1 {
+		return nil, fmt.Errorf("found %d instances for instance-id %s", len(reservation.Instances), id)
+	}
+
+	instance := reservation.Instances[0]
+
+	return instance, instanceHasAllowedState(instance, instanceStateFilter)
 }
 
 // getInstances returns all instances that have a tag matching our machine name,
 // and cluster ID.
 func getInstances(machine *machinev1.Machine, client awsclient.Client, instanceStateFilter []*string) ([]*ec2.Instance, error) {
-
 	clusterID, ok := getClusterID(machine)
 	if !ok {
 		return []*ec2.Instance{}, fmt.Errorf("unable to get cluster ID for machine: %q", machine.Name)
@@ -79,14 +145,6 @@ func getInstances(machine *machinev1.Machine, client awsclient.Client, instanceS
 		clusterFilter(clusterID),
 	}
 
-	if instanceStateFilter != nil {
-		requestFilters = append(requestFilters, &ec2.Filter{
-			Name:   aws.String("instance-state-name"),
-			Values: instanceStateFilter,
-		})
-	}
-
-	// Query instances with our machine's name, and in running/pending state.
 	request := &ec2.DescribeInstancesInput{
 		Filters: requestFilters,
 	}
@@ -97,9 +155,15 @@ func getInstances(machine *machinev1.Machine, client awsclient.Client, instanceS
 	}
 
 	instances := make([]*ec2.Instance, 0, len(result.Reservations))
+
 	for _, reservation := range result.Reservations {
 		for _, instance := range reservation.Instances {
-			instances = append(instances, instance)
+			err := instanceHasAllowedState(instance, instanceStateFilter)
+			if err != nil {
+				glog.Errorf("Excluding instance matching %s: %v", machine.Name, err)
+			} else {
+				instances = append(instances, instance)
+			}
 		}
 	}
 
