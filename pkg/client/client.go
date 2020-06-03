@@ -52,6 +52,7 @@ type AwsClientBuilderFuncType func(client client.Client, secretName, namespace, 
 // Client is a wrapper object for actual AWS SDK clients to allow for easier testing.
 type Client interface {
 	DescribeImages(*ec2.DescribeImagesInput) (*ec2.DescribeImagesOutput, error)
+	DescribeDHCPOptions(input *ec2.DescribeDhcpOptionsInput) (*ec2.DescribeDhcpOptionsOutput, error)
 	DescribeVpcs(*ec2.DescribeVpcsInput) (*ec2.DescribeVpcsOutput, error)
 	DescribeSubnets(*ec2.DescribeSubnetsInput) (*ec2.DescribeSubnetsOutput, error)
 	DescribeAvailabilityZones(*ec2.DescribeAvailabilityZonesInput) (*ec2.DescribeAvailabilityZonesOutput, error)
@@ -123,6 +124,10 @@ func (c *awsClient) ELBv2DescribeTargetGroups(input *elbv2.DescribeTargetGroupsI
 
 func (c *awsClient) ELBv2RegisterTargets(input *elbv2.RegisterTargetsInput) (*elbv2.RegisterTargetsOutput, error) {
 	return c.elbv2Client.RegisterTargets(input)
+}
+
+func (c *awsClient) DescribeDHCPOptions(input *ec2.DescribeDhcpOptionsInput) (*ec2.DescribeDhcpOptionsOutput, error) {
+	return c.ec2Client.DescribeDhcpOptions(input)
 }
 
 // NewClient creates our client wrapper object for the actual AWS clients we use.

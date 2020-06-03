@@ -350,7 +350,7 @@ func findAWSMachineProviderCondition(conditions []providerconfigv1.AWSMachinePro
 }
 
 // extractNodeAddresses maps the instance information from EC2 to an array of NodeAddresses
-func extractNodeAddresses(instance *ec2.Instance) ([]corev1.NodeAddress, error) {
+func extractNodeAddresses(instance *ec2.Instance, domainNames []string) ([]corev1.NodeAddress, error) {
 	// Not clear if the order matters here, but we might as well indicate a sensible preference order
 
 	if instance == nil {
@@ -405,6 +405,12 @@ func extractNodeAddresses(instance *ec2.Instance) ([]corev1.NodeAddress, error) 
 	if privateDNSName != "" {
 		addresses = append(addresses, corev1.NodeAddress{Type: corev1.NodeInternalDNS, Address: privateDNSName})
 		addresses = append(addresses, corev1.NodeAddress{Type: corev1.NodeHostName, Address: privateDNSName})
+		for _, dn := range domainNames {
+			customHostName := strings.Join([]string{strings.Split(privateDNSName, ".")[0], dn}, ".")
+			if customHostName != privateDNSName {
+				addresses = append(addresses, corev1.NodeAddress{Type: corev1.NodeInternalDNS, Address: customHostName})
+			}
+		}
 	}
 
 	publicDNSName := aws.StringValue(instance.PublicDnsName)

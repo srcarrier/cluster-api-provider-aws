@@ -19,6 +19,7 @@ package machine
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -90,6 +91,9 @@ const (
 	noEventAction     = ""
 )
 
+// dhcpDomainKeyName is a variable so we can reference it in unit tests.
+var dhcpDomainKeyName = "domain-name"
+
 // Set corresponding event based on error. It also returns the original error
 // for convenience, so callers can do "return handleMachineError(...)".
 func (a *Actuator) handleMachineError(machine *machinev1.Machine, err error, eventAction string) error {
@@ -131,7 +135,7 @@ func (a *Actuator) Create(context context.Context, machine *machinev1.Machine) e
 		return a.handleMachineError(machine, errors.Wrap(err, "failed to set machine cloud provider specifics"), createEventAction)
 	}
 
-	err = a.setStatus(machine, instance)
+	err = a.setStatus(machine, instance, nil)
 	if err != nil {
 		return a.handleMachineError(machine, errors.Wrap(err, "failed to set machine status"), createEventAction)
 
@@ -423,7 +427,7 @@ func (a *Actuator) Update(context context.Context, machine *machinev1.Machine) e
 		a.handleMachineError(machine, mapierrors.UpdateMachine("no instance found, reason unknown"), updateEventAction)
 
 		// Update status to clear out machine details.
-		if err := a.setStatus(machine, nil); err != nil {
+		if err := a.setStatus(machine, nil, nil); err != nil {
 			return err
 		}
 		// This is an unrecoverable error condition.  We should delay to
@@ -463,8 +467,14 @@ func (a *Actuator) Update(context context.Context, machine *machinev1.Machine) e
 		return a.handleMachineError(machine, errors.Wrap(err, "failed to update machine object with providerID"), updateEventAction)
 	}
 
+	domainNames, err := getCustomDomainFromDHCP(newestInstance.VpcId, client, machine.Name)
+
+	if err != nil {
+		return err
+	}
+
 	// We do not support making changes to pre-existing instances, just update status.
-	err = a.setStatus(machine, newestInstance)
+	err = a.setStatus(machine, newestInstance, domainNames)
 	if err != nil {
 		return a.handleMachineError(machine, errors.Wrap(err, "failed to set machine status"), updateEventAction)
 	}
@@ -475,6 +485,39 @@ func (a *Actuator) Update(context context.Context, machine *machinev1.Machine) e
 	}
 
 	return a.requeueIfInstancePending(machine.Name, newestInstance)
+}
+
+func getCustomDomainFromDHCP(vpcID *string, awsClient awsclient.Client, machineName string) ([]string, error) {
+	vpc, err := awsClient.DescribeVpcs(&ec2.DescribeVpcsInput{
+		VpcIds: []*string{vpcID},
+	})
+	if err != nil {
+		glog.Errorf("%s: error describing vpc: %v", machineName, err)
+		return nil, err
+	}
+
+	if len(vpc.Vpcs) == 0 || vpc.Vpcs[0] == nil || vpc.Vpcs[0].DhcpOptionsId == nil {
+		return nil, nil
+	}
+
+	dhcp, err := awsClient.DescribeDHCPOptions(&ec2.DescribeDhcpOptionsInput{
+		DhcpOptionsIds: []*string{vpc.Vpcs[0].DhcpOptionsId},
+	})
+	if err != nil {
+		glog.Errorf("%s: error describing dhcp: %v", machineName, err)
+		return nil, err
+	}
+
+	if dhcp == nil || len(dhcp.DhcpOptions) == 0 || dhcp.DhcpOptions[0] == nil {
+		return nil, nil
+	}
+
+	for _, i := range dhcp.DhcpOptions[0].DhcpConfigurations {
+		if i.Key != nil && *i.Key == dhcpDomainKeyName && len(i.Values) > 0 && i.Values[0] != nil && i.Values[0].Value != nil {
+			return strings.Split(*i.Values[0].Value, " "), nil
+		}
+	}
+	return nil, nil
 }
 
 // Exists determines if the given machine currently exists.
@@ -583,7 +626,7 @@ func (a *Actuator) updateLoadBalancers(client awsclient.Client, providerConfig *
 }
 
 // setStatus calculates the new machine status, checks if anything has changed, and updates if so.
-func (a *Actuator) setStatus(machine *machinev1.Machine, instance *ec2.Instance) error {
+func (a *Actuator) setStatus(machine *machinev1.Machine, instance *ec2.Instance, domainNames []string) error {
 	glog.Infof("%s: Updating status", machine.Name)
 
 	// Starting with a fresh status as we assume full control of it here.
@@ -604,7 +647,7 @@ func (a *Actuator) setStatus(machine *machinev1.Machine, instance *ec2.Instance)
 		awsStatus.InstanceID = instance.InstanceId
 		awsStatus.InstanceState = instance.State.Name
 
-		addresses, err := extractNodeAddresses(instance)
+		addresses, err := extractNodeAddresses(instance, domainNames)
 		if err != nil {
 			glog.Errorf("%s: Error extracting instance IP addresses: %v", machine.Name, err)
 			return err
