@@ -10,7 +10,7 @@ require (
 	github.com/golang/mock v1.2.0
 
 	// kube 1.16
-	github.com/openshift/machine-api-operator v0.2.1-0.20200212112539-a9085e24cf62
+	github.com/openshift/machine-api-operator v0.2.1-0.20200619202349-b1554c071412
 	github.com/pkg/errors v0.8.1
 	github.com/spf13/cobra v0.0.5
 	github.com/spf13/pflag v1.0.5
