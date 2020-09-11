@@ -34,16 +34,49 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
+// The default durations for the leader electrion operations.
+var (
+	leaseDuration = 120 * time.Second
+	renewDealine  = 110 * time.Second
+	retryPeriod   = 20 * time.Second
+)
+
 func main() {
-	var printVersion bool
-	flag.BoolVar(&printVersion, "version", false, "print version and exit")
+	printVersion := flag.Bool(
+		"version",
+		false,
+		"print version and exit",
+	)
+
+	watchNamespace := flag.String(
+		"namespace",
+		"",
+		"Namespace that the controller watches to reconcile machine-api objects. If unspecified, the controller watches for machine-api objects across all namespaces.",
+	)
+
+	leaderElectResourceNamespace := flag.String(
+		"leader-elect-resource-namespace",
+		"",
+		"The namespace of resource object that is used for locking during leader election. If unspecified and running in cluster, defaults to the service account namespace for the controller. Required for leader-election outside of a cluster.",
+	)
+
+	leaderElect := flag.Bool(
+		"leader-elect",
+		false,
+		"Start a leader election client and gain leadership before executing the main loop. Enable this when running replicated components for high availability.",
+	)
+
+	leaderElectLeaseDuration := flag.Duration(
+		"leader-elect-lease-duration",
+		leaseDuration,
+		"The duration that non-leader candidates will wait after observing a leadership renewal until attempting to acquire leadership of a led but unrenewed leader slot. This is effectively the maximum duration that a leader can be stopped before it is replaced by another candidate. This is only applicable if leader election is enabled.",
+	)
 
 	klog.InitFlags(nil)
-	watchNamespace := flag.String("namespace", "", "Namespace that the controller watches to reconcile machine-api objects. If unspecified, the controller watches for machine-api objects across all namespaces.")
 	flag.Set("logtostderr", "true")
 	flag.Parse()
 
-	if printVersion {
+	if *printVersion {
 		fmt.Println(version.String)
 		os.Exit(0)
 	}
@@ -57,10 +90,18 @@ func main() {
 	// Setup a Manager
 	syncPeriod := 10 * time.Minute
 	opts := manager.Options{
-		SyncPeriod: &syncPeriod,
+		LeaderElection:          *leaderElect,
+		LeaderElectionNamespace: *leaderElectResourceNamespace,
+		LeaderElectionID:        "cluster-api-provider-aws-leader",
+		LeaseDuration:           leaderElectLeaseDuration,
+		SyncPeriod:              &syncPeriod,
 		// Disable metrics serving
 		MetricsBindAddress: "0",
+		// Slow the default retry and renew election rate to reduce etcd writes at idle: BZ 1858400
+		RetryPeriod:   &retryPeriod,
+		RenewDeadline: &renewDealine,
 	}
+
 	if *watchNamespace != "" {
 		opts.Namespace = *watchNamespace
 		klog.Infof("Watching machine-api objects only in namespace %q for reconciliation.", opts.Namespace)
