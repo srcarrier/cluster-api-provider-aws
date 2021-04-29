@@ -203,7 +203,7 @@ github.com/onsi/gomega/matchers/support/goraph/edge
 github.com/onsi/gomega/matchers/support/goraph/node
 github.com/onsi/gomega/matchers/support/goraph/util
 github.com/onsi/gomega/types
-# github.com/openshift/api v0.0.0-20201216151826-78a19e96f9eb
+# github.com/openshift/api v0.0.0-20210428205234-a8389931bee7
 ## explicit
 github.com/openshift/api/config/v1
 # github.com/openshift/client-go v0.0.0-20201214125552-e615e336eb49
