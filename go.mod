@@ -9,7 +9,7 @@ require (
 	github.com/golang/mock v1.4.4
 	github.com/onsi/ginkgo v1.14.1
 	github.com/onsi/gomega v1.10.2
-	github.com/openshift/api v0.0.0-20201216151826-78a19e96f9eb
+	github.com/openshift/api v0.0.0-20210428205234-a8389931bee7
 	github.com/openshift/machine-api-operator v0.2.1-0.20210104142355-8e6ae0acdfcf
 
 	// kube 1.18
