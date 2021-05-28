@@ -90,6 +90,67 @@ type AWSMachineProviderConfig struct {
 	SpotMarketOptions *SpotMarketOptions `json:"spotMarketOptions,omitempty"`
 }
 
+type IBMMachineProviderConfig struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// AMI is the reference to the AMI from which to create the machine instance.
+	AMI AWSResourceReference `json:"ami"`
+
+	// InstanceType is the type of instance to create. Example: m4.xlarge
+	InstanceType string `json:"instanceType"`
+
+	// Tags is the set of tags to add to apply to an instance, in addition to the ones
+	// added by default by the actuator. These tags are additive. The actuator will ensure
+	// these tags are present, but will not remove any other tags that may exist on the
+	// instance.
+	Tags []TagSpecification `json:"tags,omitempty"`
+
+	// IAMInstanceProfile is a reference to an IAM role to assign to the instance
+	IAMInstanceProfile *AWSResourceReference `json:"iamInstanceProfile,omitempty"`
+
+	// UserDataSecret contains a local reference to a secret that contains the
+	// UserData to apply to the instance
+	UserDataSecret *corev1.LocalObjectReference `json:"userDataSecret,omitempty"`
+
+	// CredentialsSecret is a reference to the secret with AWS credentials. Otherwise, defaults to permissions
+	// provided by attached IAM role where the actuator is running.
+	CredentialsSecret *corev1.LocalObjectReference `json:"credentialsSecret,omitempty"`
+
+	// KeyName is the name of the KeyPair to use for SSH
+	KeyName *string `json:"keyName,omitempty"`
+
+	// DeviceIndex is the index of the device on the instance for the network interface attachment.
+	// Defaults to 0.
+	DeviceIndex int64 `json:"deviceIndex"`
+
+	// PublicIP specifies whether the instance should get a public IP. If not present,
+	// it should use the default of its subnet.
+	PublicIP *bool `json:"publicIp,omitempty"`
+
+	// SecurityGroups is an array of references to security groups that should be applied to the
+	// instance.
+	SecurityGroups []AWSResourceReference `json:"securityGroups,omitempty"`
+
+	// Subnet is a reference to the subnet to use for this instance
+	Subnet AWSResourceReference `json:"subnet"`
+
+	// Placement specifies where to create the instance in AWS
+	Placement Placement `json:"placement"`
+
+	// LoadBalancers is the set of load balancers to which the new instance
+	// should be added once it is created.
+	LoadBalancers []LoadBalancerReference `json:"loadBalancers,omitempty"`
+
+	// BlockDevices is the set of block device mapping associated to this instance,
+	// block device without a name will be used as a root device and only one device without a name is allowed
+	// https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/block-device-mapping-concepts.html
+	BlockDevices []BlockDeviceMappingSpec `json:"blockDevices,omitempty"`
+
+	// SpotMarketOptions allows users to configure instances to be run using AWS Spot instances.
+	SpotMarketOptions *SpotMarketOptions `json:"spotMarketOptions,omitempty"`
+}
+
 // BlockDeviceMappingSpec describes a block device mapping
 type BlockDeviceMappingSpec struct {
 

@@ -40,6 +40,22 @@ type AWSMachineProviderStatus struct {
 	Conditions []AWSMachineProviderCondition `json:"conditions,omitempty"`
 }
 
+type IBMMachineProviderStatus struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// InstanceID is the instance ID of the machine created in AWS
+	// +optional
+	InstanceID *string `json:"instanceId,omitempty"`
+
+	// InstanceState is the state of the AWS instance for this machine
+	// +optional
+	InstanceState *string `json:"instanceState,omitempty"`
+
+	// Conditions is a set of conditions associated with the Machine to indicate
+	// errors or other status
+	Conditions []AWSMachineProviderCondition `json:"conditions,omitempty"`
+}
+
 // AWSMachineProviderConditionType is a valid value for AWSMachineProviderCondition.Type
 type AWSMachineProviderConditionType string
 

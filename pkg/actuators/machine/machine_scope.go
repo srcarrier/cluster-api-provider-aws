@@ -9,6 +9,7 @@ import (
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	machineapierros "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	awsproviderv1 "sigs.k8s.io/cluster-api-provider-aws/pkg/apis/awsprovider/v1beta1"
 	awsclient "sigs.k8s.io/cluster-api-provider-aws/pkg/client"
@@ -35,6 +36,19 @@ type machineScopeParams struct {
 	configManagedClient runtimeclient.Client
 }
 
+type machineScopeParamsIBM struct {
+	context.Context
+
+	ibmClientBuilder awsclient.IbmClientBuilderFuncType
+
+	// api server controller runtime client
+	client runtimeclient.Client
+	// machine resource
+	machine *machinev1.Machine
+	// api server controller runtime client for the openshift-config-managed namespace
+	configManagedClient runtimeclient.Client
+}
+
 type machineScope struct {
 	context.Context
 
@@ -47,6 +61,56 @@ type machineScope struct {
 	machineToBePatched runtimeclient.Patch
 	providerSpec       *awsproviderv1.AWSMachineProviderConfig
 	providerStatus     *awsproviderv1.AWSMachineProviderStatus
+}
+
+type IBMMachineProviderStatus struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// InstanceID is the instance ID of the machine created in AWS
+	// +optional
+	InstanceID *string `json:"instanceId,omitempty"`
+
+	// InstanceState is the state of the AWS instance for this machine
+	// +optional
+	InstanceState *string `json:"instanceState,omitempty"`
+}
+
+type machineScopeIBM struct {
+	context.Context
+
+	//client for interacting with IBMCloud
+	ibmClient awsclient.ClientIBM
+	// api server controller runtime client
+	client runtimeclient.Client
+	//Logger        logr.Logger
+	//Cluster       *clusterv1.Cluster
+	//Machine *clusterv1.Machine
+	// machine resource
+	machine            *machinev1.Machine
+	machineToBePatched runtimeclient.Patch
+	//providerSpec       *awsproviderv1.AWSMachineProviderConfig
+	providerStatus *IBMMachineProviderStatus
+	//IBMVPCCluster *infrav1.IBMVPCCluster
+	//IBMVPCMachine *machinev1.IBMVPCMachine
+}
+
+func newMachineScopeIBM(params machineScopeParamsIBM) (*machineScopeIBM, error) {
+
+	klog.Info("src:m_s:newMachineScopeIBM > entry")
+
+	ibmClient, err := params.ibmClientBuilder(params.client, "ibmcloud-mao-key", params.machine.Namespace, "us-east", params.configManagedClient)
+
+	if err != nil {
+		return nil, machineapierros.InvalidMachineConfiguration("failed to create aws client: %v", err.Error())
+	}
+
+	return &machineScopeIBM{
+		Context:            params.Context,
+		ibmClient:          ibmClient,
+		client:             params.client,
+		machine:            params.machine,
+		machineToBePatched: runtimeclient.MergeFrom(params.machine.DeepCopy()),
+	}, nil
 }
 
 func newMachineScope(params machineScopeParams) (*machineScope, error) {
@@ -81,6 +145,29 @@ func newMachineScope(params machineScopeParams) (*machineScope, error) {
 	}, nil
 }
 
+func (s *machineScopeIBM) patchMachine() error {
+	klog.Info("src:*machineScopeIBM > entry")
+	klog.Info("src:machine: ", s.machine.GetName())
+
+	statusCopy := *s.machine.Status.DeepCopy()
+
+	// patch machine
+	if err := s.client.Patch(context.Background(), s.machine, s.machineToBePatched); err != nil {
+		klog.Errorf("Failed to patch machine %q: %v", s.machine.GetName(), err)
+		return err
+	}
+
+	s.machine.Status = statusCopy
+
+	// patch status
+	if err := s.client.Status().Patch(context.Background(), s.machine, s.machineToBePatched); err != nil {
+		klog.Errorf("Failed to patch machine status %q: %v", s.machine.GetName(), err)
+		return err
+	}
+
+	return nil
+}
+
 // Patch patches the machine spec and machine status after reconciling.
 func (s *machineScope) patchMachine() error {
 	klog.V(3).Infof("%v: patching machine", s.machine.GetName())
@@ -110,6 +197,29 @@ func (s *machineScope) patchMachine() error {
 	return nil
 }
 
+func (s *machineScopeIBM) getUserData() ([]byte, error) {
+	klog.Info("src:(s *machineScopeIBM) getUserData() > entry")
+	userDataSecret := &corev1.Secret{}
+
+	objKey := runtimeclient.ObjectKey{
+		Namespace: s.machine.Namespace,
+		Name:      "worker-user-data",
+	}
+
+	if err := s.client.Get(s.Context, objKey, userDataSecret); err != nil {
+		return nil, err
+	}
+
+	userData, exists := userDataSecret.Data[userDataSecretKey]
+	if !exists {
+		return nil, fmt.Errorf("src:IBM secret %s missing %s key", objKey, userDataSecretKey)
+	}
+
+	klog.Info("src:userData: ", userData)
+
+	return userData, nil
+}
+
 // getUserData fetches the user-data from the secret referenced in the Machine's
 // provider spec, if one is set.
 func (s *machineScope) getUserData() ([]byte, error) {
@@ -134,6 +244,17 @@ func (s *machineScope) getUserData() ([]byte, error) {
 	}
 
 	return userData, nil
+}
+
+func (s *machineScopeIBM) setProviderStatus(instanceId string, instanceState string) error {
+	klog.Info("src:rec:setProviderStatus > entry")
+	if s.providerStatus == nil {
+		klog.Info("src: providerStatus is nil, assigning new instance")
+		s.providerStatus = new(IBMMachineProviderStatus)
+	}
+	s.providerStatus.InstanceID = &instanceId
+	s.providerStatus.InstanceState = &instanceState
+	return nil
 }
 
 func (s *machineScope) setProviderStatus(instance *ec2.Instance, condition awsproviderv1.AWSMachineProviderCondition) error {

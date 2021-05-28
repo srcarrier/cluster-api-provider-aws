@@ -155,6 +155,7 @@ func main() {
 		Client:              mgr.GetClient(),
 		EventRecorder:       mgr.GetEventRecorderFor("awscontroller"),
 		AwsClientBuilder:    awsclient.NewValidatedClient,
+		IbmClientBuilder:    awsclient.NewClientIBM,
 		ConfigManagedClient: configManagedClient,
 	})
 

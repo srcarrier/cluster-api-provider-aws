@@ -104,7 +104,10 @@ func instanceHasAllowedState(instance *ec2.Instance, instanceStateFilter []*stri
 
 // getInstanceByID returns the instance with the given ID if it exists.
 func getInstanceByID(id string, client awsclient.Client, instanceStateFilter []*string) (*ec2.Instance, error) {
+	klog.Info("src:utils:getInstanceByID > entry")
+	klog.Info("src: id: ", id)
 	if id == "" {
+		klog.Info("src: id is nil or empty")
 		return nil, fmt.Errorf("instance-id not specified")
 	}
 

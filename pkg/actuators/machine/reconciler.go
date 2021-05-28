@@ -30,10 +30,50 @@ type Reconciler struct {
 	*machineScope
 }
 
+type ReconcilerIBM struct {
+	*machineScopeIBM
+}
+
+func newReconcilerIBM(scope *machineScopeIBM) *ReconcilerIBM {
+	return &ReconcilerIBM{
+		machineScopeIBM: scope,
+	}
+}
+
 func newReconciler(scope *machineScope) *Reconciler {
 	return &Reconciler{
 		machineScope: scope,
 	}
+}
+
+func (r *ReconcilerIBM) createIBM() error {
+	klog.Info("src:createIBM > entry")
+	userData, err := r.machineScopeIBM.getUserData()
+	if err != nil {
+		klog.Error("src:err getting userData: ", err)
+	}
+	instance, err := r.ibmClient.CreateVsi(r.machine.GetName(), userData)
+
+	if err != nil {
+		klog.Error("src:CreateVsi returned err: ", err)
+	}
+
+	klog.Infof("src:Created Machine %v", r.machine.Name)
+	if err = r.setProviderID(); err != nil {
+		return fmt.Errorf("src: failed to update machine object with providerID: %w", err)
+	}
+	r.machineScopeIBM.setProviderStatus(*instance.ID, *instance.Status)
+	if r.machine.Annotations == nil {
+		r.machine.Annotations = make(map[string]string)
+	}
+	r.machine.Annotations[machinecontroller.MachineInstanceStateAnnotationName] = *instance.Status
+	statusRunning := "running"
+	if instance.Status != &statusRunning {
+		klog.Info("src: createIBM inst status != running, status: ", instance.Status)
+		return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
+	}
+
+	return nil
 }
 
 // create creates machine if it does not exists.
@@ -106,8 +146,17 @@ func (r *Reconciler) create() error {
 	return r.requeueIfInstancePending(instance)
 }
 
+func (r *ReconcilerIBM) delete() error {
+	klog.Info("src:*ReconcilerIBM delete() > entry")
+	if err := r.ibmClient.DeleteVsi(r.machine.GetName()); err != nil {
+		klog.Error("src:rec:delete() err: ", err)
+	}
+	return nil
+}
+
 // delete deletes machine
 func (r *Reconciler) delete() error {
+	klog.Info("src:rec:delete() > entry")
 	klog.Infof("%s: deleting machine", r.machine.Name)
 
 	// Get all instances not terminated.
@@ -155,6 +204,34 @@ func (r *Reconciler) delete() error {
 	}
 
 	klog.Infof("Deleted machine %v", r.machine.Name)
+
+	return nil
+}
+
+func (r *ReconcilerIBM) update() error {
+	klog.Info("src: (r *ReconcilerIBM) update() > entry")
+	instance, err := r.ibmClient.GetVsi(r.machine.Name)
+	if err != nil {
+		klog.Error("src:rec:update err: ", err)
+		return err
+	}
+
+	status := *instance.Status
+	id := *instance.ID
+
+	klog.Info("src: status: ", status)
+	klog.Info("src: id: ", id)
+
+	if id != "" && status != "" {
+		r.setProviderStatus(id, status)
+		r.machineScopeIBM.setProviderStatus(id, status)
+		if r.machine.Annotations == nil {
+			r.machine.Annotations = make(map[string]string)
+		}
+		r.machine.Annotations[machinecontroller.MachineInstanceStateAnnotationName] = status
+	}
+
+	//r.setProviderID()
 
 	return nil
 }
@@ -240,10 +317,25 @@ func (r *Reconciler) update() error {
 	return r.requeueIfInstancePending(newestInstance)
 }
 
+func (r *ReconcilerIBM) exists() (bool, error) {
+	klog.Info("src:rec:*ReconcilerIBM > entry")
+	klog.Info("src: checking if machine exists: ", r.machine.GetName())
+	exists, err := r.ibmClient.Exists(r.machine.GetName())
+	if err != nil {
+		klog.Error("src:error checking machine exists: ", err)
+	}
+	if exists {
+		r.setProviderID() // only set pid when instance exists
+	}
+	return exists, err
+}
+
 // exists returns true if machine exists.
 func (r *Reconciler) exists() (bool, error) {
+	klog.Info("src:rec:exists > entry")
 	// Get all instances not terminated.
 	existingInstances, err := r.getMachineInstances()
+	klog.Info("src:rec:exists existInst len: ", len(existingInstances))
 	if err != nil {
 		// Reporting as update here, as successfull return value from the method
 		// later indicases that an instance update flow will be executed.
@@ -265,7 +357,7 @@ func (r *Reconciler) exists() (bool, error) {
 		klog.Infof("%s: Instance does not exist", r.machine.Name)
 		return false, nil
 	}
-
+	klog.Info("src:rec:exists 0 arr element is nil: ", (existingInstances[0] == nil))
 	return existingInstances[0] != nil, err
 }
 
@@ -360,6 +452,19 @@ func (r *Reconciler) removeFromLoadBalancers(instances []*ec2.Instance) error {
 	return nil
 }
 
+func (r *ReconcilerIBM) setProviderID() error {
+	klog.Info("src:setProviderID > entry")
+	clusterId, _ := getClusterID(r.machine)
+	providerID := fmt.Sprintf("ibmvpc://%s/%s", clusterId, r.machine.GetName())
+	klog.Info("src:providerID: ", providerID)
+	//if r.machine.Spec.ProviderID != nil || providerID != "" {
+	r.machine.Spec.ProviderID = &providerID
+	r.machineScopeIBM.machine.Spec.ProviderID = &providerID
+	//}
+	klog.Info("src: mach: ", r.machine.GetName(), " pid: ", r.machine.Spec.ProviderID)
+	return nil
+}
+
 // setProviderID adds providerID in the machine spec
 func (r *Reconciler) setProviderID(instance *ec2.Instance) error {
 	existingProviderID := r.machine.Spec.ProviderID
@@ -442,6 +547,8 @@ func (r *Reconciler) requeueIfInstancePending(instance *ec2.Instance) error {
 }
 
 func (r *Reconciler) getMachineInstances() ([]*ec2.Instance, error) {
+	klog.Info("src:rec:getMachineInstances() > entry")
+	klog.Info("src:rec: instID: ", r.providerStatus.InstanceID)
 	// If there is a non-empty instance ID, search using that, otherwise
 	// fallback to filtering based on tags.
 	if r.providerStatus.InstanceID != nil && *r.providerStatus.InstanceID != "" {

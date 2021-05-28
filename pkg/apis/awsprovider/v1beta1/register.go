@@ -77,6 +77,22 @@ func RawExtensionFromProviderStatus(status *AWSMachineProviderStatus) (*runtime.
 	}, nil
 }
 
+func RawExtensionFromProviderStatusIBM(status *AWSMachineProviderStatus) (*runtime.RawExtension, error) {
+	if status == nil {
+		return &runtime.RawExtension{}, nil
+	}
+
+	var rawBytes []byte
+	var err error
+	if rawBytes, err = json.Marshal(status); err != nil {
+		return nil, fmt.Errorf("error marshalling providerStatus: %v", err)
+	}
+
+	return &runtime.RawExtension{
+		Raw: rawBytes,
+	}, nil
+}
+
 // ProviderSpecFromRawExtension unmarshals a raw extension into an AWSMachineProviderSpec type
 func ProviderSpecFromRawExtension(rawExtension *runtime.RawExtension) (*AWSMachineProviderConfig, error) {
 	if rawExtension == nil {
