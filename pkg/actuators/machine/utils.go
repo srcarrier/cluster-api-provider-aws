@@ -27,7 +27,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	machinev1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
-	machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
+
+	//machinecontroller "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	"k8s.io/klog/v2"
 	awsproviderv1 "sigs.k8s.io/cluster-api-provider-aws/pkg/apis/awsprovider/v1beta1"
 	awsclient "sigs.k8s.io/cluster-api-provider-aws/pkg/client"
@@ -392,9 +393,9 @@ func conditionFailed() awsproviderv1.AWSMachineProviderCondition {
 
 // validateMachine check the label that a machine must have to identify the cluster to which it belongs is present.
 func validateMachine(machine machinev1.Machine) error {
-	if machine.Labels[machinev1.MachineClusterIDLabel] == "" {
-		return machinecontroller.InvalidMachineConfiguration("%v: missing %q label", machine.GetName(), machinev1.MachineClusterIDLabel)
-	}
+	//if machine.Labels[machinev1.MachineClusterIDLabel] == "" {
+	//	return machinecontroller.InvalidMachineConfiguration("%v: missing %q label", machine.GetName(), machinev1.MachineClusterIDLabel)
+	//}
 
 	return nil
 }

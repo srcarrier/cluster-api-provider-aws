@@ -88,8 +88,8 @@ type machineScopeIBM struct {
 	// machine resource
 	machine            *machinev1.Machine
 	machineToBePatched runtimeclient.Patch
-	//providerSpec       *awsproviderv1.AWSMachineProviderConfig
-	providerStatus *IBMMachineProviderStatus
+	providerSpec       *awsproviderv1.IBMCloudMachineProviderSpec
+	providerStatus     *IBMMachineProviderStatus
 	//IBMVPCCluster *infrav1.IBMVPCCluster
 	//IBMVPCMachine *machinev1.IBMVPCMachine
 }
@@ -101,7 +101,13 @@ func newMachineScopeIBM(params machineScopeParamsIBM) (*machineScopeIBM, error) 
 	ibmClient, err := params.ibmClientBuilder(params.client, "ibmcloud-mao-key", params.machine.Namespace, "us-east", params.configManagedClient)
 
 	if err != nil {
-		return nil, machineapierros.InvalidMachineConfiguration("failed to create aws client: %v", err.Error())
+		return nil, machineapierros.InvalidMachineConfiguration("failed to create IBM client: %v", err.Error())
+	}
+
+	providerSpec, err := awsproviderv1.IBMProviderSpecFromRawExtension(params.machine.Spec.ProviderSpec.Value)
+	if err != nil {
+		klog.Error("src:machscp:err IBMProviderSpecFromRawExtension: ", err)
+		return nil, err
 	}
 
 	return &machineScopeIBM{
@@ -110,6 +116,7 @@ func newMachineScopeIBM(params machineScopeParamsIBM) (*machineScopeIBM, error) 
 		client:             params.client,
 		machine:            params.machine,
 		machineToBePatched: runtimeclient.MergeFrom(params.machine.DeepCopy()),
+		providerSpec:       providerSpec,
 	}, nil
 }
 

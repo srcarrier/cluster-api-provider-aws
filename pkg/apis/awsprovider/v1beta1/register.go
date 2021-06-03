@@ -60,6 +60,22 @@ func RawExtensionFromProviderSpec(spec *AWSMachineProviderConfig) (*runtime.RawE
 	}, nil
 }
 
+func RawExtensionFromIBMProviderSpec(spec *IBMCloudMachineProviderSpec) (*runtime.RawExtension, error) {
+	if spec == nil {
+		return &runtime.RawExtension{}, nil
+	}
+
+	var rawBytes []byte
+	var err error
+	if rawBytes, err = json.Marshal(spec); err != nil {
+		return nil, fmt.Errorf("error marshalling providerSpec: %v", err)
+	}
+
+	return &runtime.RawExtension{
+		Raw: rawBytes,
+	}, nil
+}
+
 // RawExtensionFromProviderStatus marshals the machine provider status
 func RawExtensionFromProviderStatus(status *AWSMachineProviderStatus) (*runtime.RawExtension, error) {
 	if status == nil {
@@ -105,6 +121,21 @@ func ProviderSpecFromRawExtension(rawExtension *runtime.RawExtension) (*AWSMachi
 	}
 
 	klog.V(5).Infof("Got provider Spec from raw extension: %+v", spec)
+	return spec, nil
+}
+
+func IBMProviderSpecFromRawExtension(rawExtension *runtime.RawExtension) (*IBMCloudMachineProviderSpec, error) {
+	klog.Info("src:reg:IBMProviderSpecFromRawExtension > entry")
+	if rawExtension == nil {
+		return &IBMCloudMachineProviderSpec{}, nil
+	}
+
+	spec := new(IBMCloudMachineProviderSpec)
+	if err := yaml.Unmarshal(rawExtension.Raw, &spec); err != nil {
+		return nil, fmt.Errorf("error unmarshalling providerSpec: %v", err)
+	}
+
+	klog.V(5).Infof("Got IBM provider Spec from raw extension: %+v", spec)
 	return spec, nil
 }
 

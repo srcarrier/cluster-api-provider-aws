@@ -152,9 +152,9 @@ func main() {
 
 	// Initialize machine actuator.
 	machineActuator := machineactuator.NewActuator(machineactuator.ActuatorParams{
-		Client:              mgr.GetClient(),
-		EventRecorder:       mgr.GetEventRecorderFor("awscontroller"),
-		AwsClientBuilder:    awsclient.NewValidatedClient,
+		Client:        mgr.GetClient(),
+		EventRecorder: mgr.GetEventRecorderFor("awscontroller"),
+		//AwsClientBuilder:    awsclient.NewValidatedClient,
 		IbmClientBuilder:    awsclient.NewClientIBM,
 		ConfigManagedClient: configManagedClient,
 	})

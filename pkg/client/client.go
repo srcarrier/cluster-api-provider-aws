@@ -19,7 +19,6 @@ package client
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -47,6 +46,7 @@ import (
 	configv1 "github.com/openshift/api/config/v1"
 	machineapiapierrors "github.com/openshift/machine-api-operator/pkg/controller/machine"
 	apimachineryerrors "k8s.io/apimachinery/pkg/api/errors"
+	awsproviderv1 "sigs.k8s.io/cluster-api-provider-aws/pkg/apis/awsprovider/v1beta1"
 )
 
 //go:generate go run ../../vendor/github.com/golang/mock/mockgen -source=./client.go -destination=./mock/client_generated.go -package=mock
@@ -96,7 +96,7 @@ type Client interface {
 
 type ClientIBM interface {
 	DescribeVpcs() error
-	CreateVsi(name string, userData []byte) (*vpcv1.Instance, error)
+	CreateVsi(name string, userData []byte, providerSpec awsproviderv1.IBMCloudMachineProviderSpec) (*vpcv1.Instance, error)
 	Exists(name string) (bool, error)
 	DeleteVsi(name string) error
 	GetVsi(name string) (*vpcv1.Instance, error)
@@ -213,7 +213,7 @@ func (c *ibmClient) Exists(name string) (bool, error) {
 	return false, nil
 }
 
-func (c *ibmClient) CreateVsi(name string, userData []byte) (*vpcv1.Instance, error) {
+func (c *ibmClient) CreateVsi(name string, userData []byte, providerSpec awsproviderv1.IBMCloudMachineProviderSpec) (*vpcv1.Instance, error) {
 	klog.Info("src:CreateVsi > entry")
 
 	//name := "src-0"
@@ -222,8 +222,12 @@ func (c *ibmClient) CreateVsi(name string, userData []byte) (*vpcv1.Instance, er
 	zone := "us-east-1"
 	subnet := "0757-375fe20d-2480-44f8-aff8-ec11ad771136"
 	//userData := "{\"ignition\":{\"config\":{\"merge\":[{\"source\":\"https://api-int.ocp.mao.satellite.test.appdomain.cloud:22623/config/worker\"}]},\"security\":{\"tls\":{\"certificateAuthorities\":[{\"source\":\"data:text/plain;charset=utf-8;base64,LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURFRENDQWZpZ0F3SUJBZ0lJRytTYkQ2WlFKQ1V3RFFZSktvWklodmNOQVFFTEJRQXdKakVTTUJBR0ExVUUKQ3hNSmIzQmxibk5vYVdaME1SQXdEZ1lEVlFRREV3ZHliMjkwTFdOaE1CNFhEVEl4TURVeE5URXlNVFl4TVZvWApEVE14TURVeE16RXlNVFl4TVZvd0pqRVNNQkFHQTFVRUN4TUpiM0JsYm5Ob2FXWjBNUkF3RGdZRFZRUURFd2R5CmIyOTBMV05oTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUF4N2QzL2tGS1Z2dEIKQ1dPZXlkUyswTjdBZllmSmFUTnZJL0ZXR1B0SjVrMXQ5TXhiWmNNSnpoUGNlWVIwL2lZZHEzVlArN2k5Mi9lcwpyQTd3dWVPdm41cXloZ2VtNkFzRHVXQlJEV1paaHQ3dmZLckJ3N1VQVWhzVmJLL3l5azc2c3dNckF3am1hUHlpCnBTMFpPSlpjR2UzUnZZMW4vSW9MeEhBdVVIODBwcHFKYVkwR0JMcEQ4Wk9idk1lTVdBZm9kSzdXaFZBY3Rad2MKTHV0ckFuMjJoMnZCYzVFOWVRRW56QzF1VStxcGx5RWYxaG4yNE9qVU03WTFVU3VPQ003TU5obXBCL3RDMGwrYQpsUFU4MEd0NnhsOWw0NHorbEFQL3Z0OTMyT05jQTBwSUF5cTNMdFh6em02eGhSSFYzL3JRVUZUTVhIWDliRTZYCmtXMy9PWjBQdHdJREFRQUJvMEl3UURBT0JnTlZIUThCQWY4RUJBTUNBcVF3RHdZRFZSMFRBUUgvQkFVd0F3RUIKL3pBZEJnTlZIUTRFRmdRVVVkUW9TbFh2K3J1REpDVVRWTFNHd25kcVovWXdEUVlKS29aSWh2Y05BUUVMQlFBRApnZ0VCQUNiaWo5VG9vTHdlaEQwek5NWHZjd2ZSbG95eEZvbmJwb0JnNWJHUXljcERPc1BEVkEzSlFrdlVDZGJuCmRaRVZNVTFWVmtvOGQ1RjRHQkVOL2lvWHEwQzYzSUVOR1Y3b0p3bFZDTEtYdUxnektITEtaMCtYdkphcmYrNE0KcG10OVRWcHVleXdDZm1QNUpjdytJYUtXL2tMdWxWUnQwMXNXdStDU2JhMlhKcmpWYkI5ekRPOG8rTmpWSmtRVwo2Y29KZmhRSy84WmhHajBnRWxFL29LRi9yYVNaTmdTSkUwNUZwcjNBbU9pVXVUQWtwOFlkSmFoNWMzeFJCYW5kCjZEa3hxWC85bHB6dHRkQ3YvRzRqMThBTVJkV0NackEreTFCczFCbVBOZEhuMUt1OE5Db1JtMDJmUlQrWFBrakEKcnlkYzRUVllwQWtJeEVZcVdpWjhVb1hBUmVJPQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==\"}]}},\"version\":\"3.2.0\"}}"
-	userDataEnc := base64.StdEncoding.EncodeToString(userData)
+	//userDataEnc := base64.StdEncoding.EncodeToString(userData)
+	userDataStr := string(userData)
 	ssh := "r014-bf027d6a-8622-4f4b-89b8-7abbaf778891"
+	securityGroup := "r014-896d277e-48b2-4c00-bb58-bb8f942dfd78"
+	securityGroup2 := "r014-b13ab126-ff99-4160-bd22-9249642ff3fb"
+	netInterfaceName := "eth0"
 
 	klog.Info("src:CreateVsi:CreateInstanceOptions > about-to")
 	opts := &vpcv1.CreateInstanceOptions{}
@@ -244,8 +248,17 @@ func (c *ibmClient) CreateVsi(name string, userData []byte) (*vpcv1.Instance, er
 			Subnet: &vpcv1.SubnetIdentity{
 				ID: &subnet,
 			},
+			SecurityGroups: []vpcv1.SecurityGroupIdentityIntf{
+				&vpcv1.SecurityGroupIdentityByID{
+					ID: &securityGroup,
+				},
+				&vpcv1.SecurityGroupIdentityByID{
+					ID: &securityGroup2,
+				},
+			},
+			Name: &netInterfaceName,
 		},
-		UserData: &userDataEnc,
+		UserData: &userDataStr,
 	}
 
 	klog.Info("src:CreateVsi:KeyIdentityIntf > about-to")

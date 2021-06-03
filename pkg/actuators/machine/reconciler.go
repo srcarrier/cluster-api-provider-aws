@@ -47,12 +47,17 @@ func newReconciler(scope *machineScope) *Reconciler {
 }
 
 func (r *ReconcilerIBM) createIBM() error {
-	klog.Info("src:createIBM > entry")
+	klog.Info("src:createIBM > entry - zone: ", r.providerSpec.Zone)
+	/*if r.providerSpec != nil {
+		klog.Info("IBM PS Zone: [", r.providerSpec.Zone, "]")
+	} else {
+		klog.Info("IBM PS is nil - UGH")
+	}*/
 	userData, err := r.machineScopeIBM.getUserData()
 	if err != nil {
 		klog.Error("src:err getting userData: ", err)
 	}
-	instance, err := r.ibmClient.CreateVsi(r.machine.GetName(), userData)
+	instance, err := r.ibmClient.CreateVsi(r.machine.GetName(), userData, *r.providerSpec)
 
 	if err != nil {
 		klog.Error("src:CreateVsi returned err: ", err)
@@ -210,6 +215,7 @@ func (r *Reconciler) delete() error {
 
 func (r *ReconcilerIBM) update() error {
 	klog.Info("src: (r *ReconcilerIBM) update() > entry")
+	klog.Info("src: --- mach: ", r.machine.Name)
 	instance, err := r.ibmClient.GetVsi(r.machine.Name)
 	if err != nil {
 		klog.Error("src:rec:update err: ", err)
@@ -231,7 +237,11 @@ func (r *ReconcilerIBM) update() error {
 		r.machine.Annotations[machinecontroller.MachineInstanceStateAnnotationName] = status
 	}
 
-	//r.setProviderID()
+	if status == "running" {
+		r.setProviderID()
+	}
+
+	klog.Info("src: --- mach: ", r.machine.Name, " PID: ", r.machine.Spec.ProviderID)
 
 	return nil
 }
@@ -454,12 +464,18 @@ func (r *Reconciler) removeFromLoadBalancers(instances []*ec2.Instance) error {
 
 func (r *ReconcilerIBM) setProviderID() error {
 	klog.Info("src:setProviderID > entry")
+	existingProviderId := r.machine.Spec.ProviderID
+	klog.Info("src: existing providerid: ", existingProviderId)
 	clusterId, _ := getClusterID(r.machine)
 	providerID := fmt.Sprintf("ibmvpc://%s/%s", clusterId, r.machine.GetName())
 	klog.Info("src:providerID: ", providerID)
+	if existingProviderId != nil && *existingProviderId == providerID {
+		klog.Info("src: update provider id already set for ", r.machine.Name, " - ", *existingProviderId)
+		return nil
+	}
 	//if r.machine.Spec.ProviderID != nil || providerID != "" {
 	r.machine.Spec.ProviderID = &providerID
-	r.machineScopeIBM.machine.Spec.ProviderID = &providerID
+	//r.machineScopeIBM.machine.Spec.ProviderID = &providerID
 	//}
 	klog.Info("src: mach: ", r.machine.GetName(), " pid: ", r.machine.Spec.ProviderID)
 	return nil

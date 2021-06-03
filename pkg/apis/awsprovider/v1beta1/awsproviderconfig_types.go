@@ -319,6 +319,73 @@ const (
 	NetworkLoadBalancerType AWSLoadBalancerType = "network" // AWS Network Load Balancer (NLB)
 )
 
+// IBMCloudMachineProviderSpec is the type that will be embedded in a Machine.Spec.ProviderSpec field
+// for an IBM Cloud VPC virtual machine. It is used by the IBM Cloud machine actuator to create a single Machine.
+// +k8s:openapi-gen=true
+type IBMCloudMachineProviderSpec struct {
+	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
+	// vpc type Instance struct
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// The user-defined name for this virtual server instance
+	// default: system hostname
+	Name string `json:"name,omitempty"`
+
+	// VPC name where the instance will be created
+	VPC string `json:"vpc"`
+
+	// Actuator will apply these tags to an virtual server instance if not present in additon
+	// to default tags applied by the actuator
+	// TODO
+	// Tags []string `json:"tags,omitempty"`
+
+	// TODO: Add labels to the virtual server
+	// Labels map[string]string `json:"labels,omitempty"`
+
+	// Image is the id of the custom OS image in VPC
+	// Example: a123-ade15224-ed7y-5e44-ye56-8199d4557699
+	Image string `json:"image"`
+
+	// Profile indicates the flavor of instance.
+	// Example: bx2-8x32 (8 vCPUs, 32 GB RAM)
+	Profile string `json:"profile"`
+
+	// Zone where the virtual server instance will be created
+	Zone string `json:"zone"`
+
+	// ProviderID is the unique identifier as specified by the cloud provider.
+	// +optional
+	ProviderID string `json:"providerID,omitempty"`
+
+	// PrimaryNetworkInterface is required to specify subnet
+	PrimaryNetworkInterface NetworkInterface `json:"primaryNetworkInterface,omitempty"`
+
+	// TODO: Probably not needed for the worker machines
+	// SSHKeys is the SSH pub keys that will be used to access virtual service instance
+	// SSHKeys []*string `json:"sshKeys,omitempty"`
+
+	// UserDataSecret holds reference to a secret which containes Instance Ignition data (User Data)
+	UserDataSecret *corev1.LocalObjectReference `json:"userDataSecret,omitempty"`
+
+	// CredentialsSecret is a reference to the secret with IBM Cloud credentials.
+	CredentialsSecret *corev1.LocalObjectReference `json:"credentialsSecret,omitempty"`
+}
+
+// NetworkInterface struct
+type NetworkInterface struct {
+	// Subnet ID of the network interface
+	Subnet string `json:"subnet,omitempty"`
+}
+
+// Subnet - Identifies a subnet by a unique property
+type Subnet struct {
+	Ipv4CidrBlock *string `json:"cidr"`
+	Name          *string `json:"name"`
+	ID            *string `json:"id"`
+	Zone          *string `json:"zone"`
+}
+
 func init() {
-	SchemeBuilder.Register(&AWSMachineProviderConfig{}, &AWSMachineProviderConfigList{}, &AWSMachineProviderStatus{})
+	SchemeBuilder.Register(&AWSMachineProviderConfig{}, &AWSMachineProviderConfigList{}, &AWSMachineProviderStatus{}, &IBMCloudMachineProviderSpec{})
 }
