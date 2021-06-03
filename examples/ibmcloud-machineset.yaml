@@ -1,0 +1,31 @@
+apiVersion: machine.openshift.io/v1beta1
+kind: MachineSet
+metadata:
+  creationTimestamp: null
+  labels:
+    machine.openshift.io/cluster-api-cluster: ocp-nq62q
+  name: ocp-nq62q-worker-13
+  namespace: openshift-machine-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      machine.openshift.io/cluster-api-cluster: ocp-nq62q
+      machine.openshift.io/cluster-api-machineset: ocp-nq62q-worker-13
+  template:
+    metadata:
+      labels:
+        machine.openshift.io/cluster-api-cluster: ocp-nq62q
+        machine.openshift.io/cluster-api-machine-role: worker
+        machine.openshift.io/cluster-api-machine-type: worker
+        machine.openshift.io/cluster-api-machineset: ocp-nq62q-worker-13
+    spec:
+      metadata: {}
+      providerSpec:
+        value:
+          apiVersion: awsproviderconfig.openshift.io/v1beta1
+          kind: IBMCloudMachineProviderSpec
+          zone: us-east-1
+
+status:
+  replicas: 1
