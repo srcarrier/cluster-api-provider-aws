@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"strings"
 
@@ -100,7 +101,62 @@ type ClientIBM interface {
 	Exists(name string) (bool, error)
 	DeleteVsi(name string) error
 	GetVsi(name string) (*vpcv1.Instance, error)
+	//CreateDns(ip string, name string) error
+	GetVsiById(id string) (*vpcv1.Instance, error)
 }
+
+func (c *ibmClient) GetVsiById(id string) (*vpcv1.Instance, error) {
+	klog.Info("src:GetVsiById > entry - id: %v", id)
+	opt := &vpcv1.GetInstanceOptions{}
+	opt.SetID(id)
+	instance, response, err := c.ibClient.GetInstance(opt)
+	if err != nil {
+		klog.Error("src: error attempting to retrieve vsi by id: %v", id)
+		return nil, err
+	}
+	if response.GetStatusCode() != http.StatusOK {
+		klog.Info("src: error resp attempting to retrieve vsi instance by id: %v, %d, %v", id, response.GetStatusCode(), response.GetResult())
+		return nil, errors.New("Error retrieving vsi instance, status code: " + http.StatusText(response.GetStatusCode()) + " result: " + string(response.GetRawResult()))
+	}
+	return instance, nil
+}
+
+/*
+func (c *ibmClient) CreateDns(ipaddr string, name string) error {
+	klog.Info("src:CreateDns > entry, ip: %v name: %v", ipaddr, name)
+
+	// Create [A] dns record
+	opt := c.dnsClient.NewCreateDnsRecordOptions()
+	opt.SetName(name)
+	opt.SetType(dnsrecordsv1.CreateDnsRecordOptions_Type_A)
+	opt.SetContent(ipaddr)
+	result, resp, err := c.dnsClient.CreateDnsRecord(opt)
+	if err != nil {
+		klog.Error("src:CreateDns error creating dns record: ", err)
+		klog.Error("src:dns resp:  %v", resp.GetRawResult())
+		return err
+	}
+	klog.Info("src:CreateDns res success: ", result.Success)
+	klog.Info("src:CreateDns resp: ", resp.GetStatusCode())
+
+	// Create [PTR] dns record
+
+	opt = c.dnsClient.NewCreateDnsRecordOptions()
+	opt.SetName(ipaddr)
+	opt.SetType("PTR")
+	opt.SetContent(*result.Result.Name)
+	result, resp, err = c.dnsClient.CreateDnsRecord(opt)
+	if err != nil {
+		klog.Error("src:CreateDns error creating dns PTR record: ", err)
+		klog.Error("src:dns resp:  %v", resp.GetRawResult())
+		return err
+	}
+	if *result.Success {
+		klog.Info("src:ptr:success")
+	}
+	return nil
+}
+*/
 
 func (c *ibmClient) GetVsi(name string) (*vpcv1.Instance, error) {
 	klog.Info("src:GetVsi > entry")
@@ -216,15 +272,17 @@ func (c *ibmClient) Exists(name string) (bool, error) {
 func (c *ibmClient) CreateVsi(name string, userData []byte, providerSpec awsproviderv1.IBMCloudMachineProviderSpec) (*vpcv1.Instance, error) {
 	klog.Info("src:CreateVsi > entry")
 
+	klog.Info("src:createvsi:provspecdet: zone: %v prof: %v subnet: %v ssh: %v", providerSpec.Zone, providerSpec.Profile, providerSpec.PrimaryNetworkInterface.Subnet, providerSpec.SSHKey)
+
 	//name := "src-0"
-	profile := "bx2-4x16"
-	image := "r014-69281f26-bb55-42b5-ba32-855d03b13233"
-	zone := "us-east-1"
-	subnet := "0757-375fe20d-2480-44f8-aff8-ec11ad771136"
+	//profile := "bx2-4x16"
+	//image := "r014-69281f26-bb55-42b5-ba32-855d03b13233"
+	//zone := "us-east-1"
+	//subnet := "0757-375fe20d-2480-44f8-aff8-ec11ad771136"
 	//userData := "{\"ignition\":{\"config\":{\"merge\":[{\"source\":\"https://api-int.ocp.mao.satellite.test.appdomain.cloud:22623/config/worker\"}]},\"security\":{\"tls\":{\"certificateAuthorities\":[{\"source\":\"data:text/plain;charset=utf-8;base64,LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURFRENDQWZpZ0F3SUJBZ0lJRytTYkQ2WlFKQ1V3RFFZSktvWklodmNOQVFFTEJRQXdKakVTTUJBR0ExVUUKQ3hNSmIzQmxibk5vYVdaME1SQXdEZ1lEVlFRREV3ZHliMjkwTFdOaE1CNFhEVEl4TURVeE5URXlNVFl4TVZvWApEVE14TURVeE16RXlNVFl4TVZvd0pqRVNNQkFHQTFVRUN4TUpiM0JsYm5Ob2FXWjBNUkF3RGdZRFZRUURFd2R5CmIyOTBMV05oTUlJQklqQU5CZ2txaGtpRzl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUF4N2QzL2tGS1Z2dEIKQ1dPZXlkUyswTjdBZllmSmFUTnZJL0ZXR1B0SjVrMXQ5TXhiWmNNSnpoUGNlWVIwL2lZZHEzVlArN2k5Mi9lcwpyQTd3dWVPdm41cXloZ2VtNkFzRHVXQlJEV1paaHQ3dmZLckJ3N1VQVWhzVmJLL3l5azc2c3dNckF3am1hUHlpCnBTMFpPSlpjR2UzUnZZMW4vSW9MeEhBdVVIODBwcHFKYVkwR0JMcEQ4Wk9idk1lTVdBZm9kSzdXaFZBY3Rad2MKTHV0ckFuMjJoMnZCYzVFOWVRRW56QzF1VStxcGx5RWYxaG4yNE9qVU03WTFVU3VPQ003TU5obXBCL3RDMGwrYQpsUFU4MEd0NnhsOWw0NHorbEFQL3Z0OTMyT05jQTBwSUF5cTNMdFh6em02eGhSSFYzL3JRVUZUTVhIWDliRTZYCmtXMy9PWjBQdHdJREFRQUJvMEl3UURBT0JnTlZIUThCQWY4RUJBTUNBcVF3RHdZRFZSMFRBUUgvQkFVd0F3RUIKL3pBZEJnTlZIUTRFRmdRVVVkUW9TbFh2K3J1REpDVVRWTFNHd25kcVovWXdEUVlKS29aSWh2Y05BUUVMQlFBRApnZ0VCQUNiaWo5VG9vTHdlaEQwek5NWHZjd2ZSbG95eEZvbmJwb0JnNWJHUXljcERPc1BEVkEzSlFrdlVDZGJuCmRaRVZNVTFWVmtvOGQ1RjRHQkVOL2lvWHEwQzYzSUVOR1Y3b0p3bFZDTEtYdUxnektITEtaMCtYdkphcmYrNE0KcG10OVRWcHVleXdDZm1QNUpjdytJYUtXL2tMdWxWUnQwMXNXdStDU2JhMlhKcmpWYkI5ekRPOG8rTmpWSmtRVwo2Y29KZmhRSy84WmhHajBnRWxFL29LRi9yYVNaTmdTSkUwNUZwcjNBbU9pVXVUQWtwOFlkSmFoNWMzeFJCYW5kCjZEa3hxWC85bHB6dHRkQ3YvRzRqMThBTVJkV0NackEreTFCczFCbVBOZEhuMUt1OE5Db1JtMDJmUlQrWFBrakEKcnlkYzRUVllwQWtJeEVZcVdpWjhVb1hBUmVJPQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==\"}]}},\"version\":\"3.2.0\"}}"
 	//userDataEnc := base64.StdEncoding.EncodeToString(userData)
 	userDataStr := string(userData)
-	ssh := "r014-bf027d6a-8622-4f4b-89b8-7abbaf778891"
+	//ssh := "r014-bf027d6a-8622-4f4b-89b8-7abbaf778891"
 	securityGroup := "r014-896d277e-48b2-4c00-bb58-bb8f942dfd78"
 	securityGroup2 := "r014-b13ab126-ff99-4160-bd22-9249642ff3fb"
 	netInterfaceName := "eth0"
@@ -236,17 +294,17 @@ func (c *ibmClient) CreateVsi(name string, userData []byte, providerSpec awsprov
 	instPrototype := &vpcv1.InstancePrototype{
 		Name: &name,
 		Image: &vpcv1.ImageIdentity{
-			ID: &image,
+			ID: &providerSpec.Image,
 		},
 		Profile: &vpcv1.InstanceProfileIdentity{
-			Name: &profile,
+			Name: &providerSpec.Profile,
 		},
 		Zone: &vpcv1.ZoneIdentity{
-			Name: &zone,
+			Name: &providerSpec.Zone,
 		},
 		PrimaryNetworkInterface: &vpcv1.NetworkInterfacePrototype{
 			Subnet: &vpcv1.SubnetIdentity{
-				ID: &subnet,
+				ID: &providerSpec.PrimaryNetworkInterface.Subnet,
 			},
 			SecurityGroups: []vpcv1.SecurityGroupIdentityIntf{
 				&vpcv1.SecurityGroupIdentityByID{
@@ -264,7 +322,7 @@ func (c *ibmClient) CreateVsi(name string, userData []byte, providerSpec awsprov
 	klog.Info("src:CreateVsi:KeyIdentityIntf > about-to")
 	instPrototype.Keys = []vpcv1.KeyIdentityIntf{}
 	key := &vpcv1.KeyIdentity{
-		ID: &ssh,
+		ID: &providerSpec.SSHKey,
 	}
 
 	instPrototype.Keys = append(instPrototype.Keys, key)
@@ -275,6 +333,9 @@ func (c *ibmClient) CreateVsi(name string, userData []byte, providerSpec awsprov
 	klog.Info("src:CreateVsi:CreateInstance > about-to")
 	inst, resp, err := c.ibClient.CreateInstance(opts)
 	klog.Info("src:CreateVsi:CreateInstance > after")
+
+	klog.Info("src:src77newVsiIP: %v", inst.PrimaryNetworkInterface.PrimaryIpv4Address)
+	klog.Info("src:src77newVsiIP-2: %v", inst.NetworkInterfaces[0].PrimaryIpv4Address)
 
 	if err != nil {
 		klog.Info("src:createVSI:err: ", err)
@@ -305,6 +366,7 @@ func (c *ibmClient) DescribeVpcs() error {
 
 type ibmClient struct {
 	ibClient vpcv1.VpcV1
+	//dnsClient cisdnsrecordsv1.DnsRecordsV1
 }
 
 type awsClient struct {
@@ -419,11 +481,45 @@ func NewClientIBM(ctrlRuntimeClient client.Client, secretName, namespace, region
 	})
 
 	if err != nil {
-
+		klog.Error("src:NewClientIBM err creating vpc client")
+		return nil, err
 	}
+
+	/*
+		authenticator := &core.IamAuthenticator{
+			ApiKey: apikey,
+			URL:    "https://iam.cloud.ibm.com/identity/token",
+		}
+		serviceURL := "https://api.cis.cloud.ibm.com"
+		crn := "crn:v1:bluemix:public:internet-svcs:global:a/4acde07aa0d5e337cb1b84babc65ccf8:998351a1-2354-4567-b8b0-1c65781be491::"
+		zoneID := "31be8cbee0367a8af5ca5552cec283ec"
+
+		globalOptions := &cisdnsrecordsv1.DnsRecordsV1Options{
+			ServiceName:    "cis_services",
+			URL:            serviceURL,
+			Authenticator:  authenticator,
+			Crn:            &crn,
+			ZoneIdentifier: &zoneID,
+		}
+
+		dnsService, dnsErr := cisdnsrecordsv1.NewDnsRecordsV1(globalOptions)
+		if dnsErr != nil {
+			return nil, dnsErr
+		}
+
+		dnsResult, dnsResponse, dnsSrvErr := dnsService.ListAllDnsRecords(dnsService.NewListAllDnsRecordsOptions())
+		if dnsSrvErr != nil {
+			klog.Error("src:src77dnsServiceInit err: ", dnsSrvErr)
+			return nil, dnsSrvErr
+		}
+
+		klog.Info("src77:dnsRecCount: %d", dnsResult.ResultInfo.Count)
+		klog.Info("src77:dnsRawResp: ", dnsResponse.GetStatusCode())
+	*/
 
 	return &ibmClient{
 		ibClient: *vpcService,
+		//dnsClient: *dnsService,
 	}, nil
 
 }

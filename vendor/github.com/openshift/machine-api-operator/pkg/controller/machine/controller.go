@@ -156,10 +156,8 @@ type ReconcileMachine struct {
 // and what is in the Machine.Spec
 // +kubebuilder:rbac:groups=machine.openshift.io,resources=machines;machines/status,verbs=get;list;watch;create;update;patch;delete
 func (r *ReconcileMachine) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
-	klog.Info("src:ctr:Reconcile > entry")
 	// Fetch the Machine instance
 	m := &machinev1.Machine{}
-	klog.Info("src:ctr:rec mach: ", m.GetName())
 	if err := r.Client.Get(ctx, request.NamespacedName, m); err != nil {
 		if apierrors.IsNotFound(err) {
 			// Object not found, return.  Created objects are automatically garbage collected.
@@ -170,7 +168,7 @@ func (r *ReconcileMachine) Reconcile(ctx context.Context, request reconcile.Requ
 		// Error reading the object - requeue the request.
 		return reconcile.Result{}, err
 	}
-	klog.Info("src:ctr:Reconcile 00")
+
 	// Implement controller logic here
 	machineName := m.GetName()
 	klog.Infof("%v: reconciling Machine", machineName)
@@ -186,26 +184,21 @@ func (r *ReconcileMachine) Reconcile(ctx context.Context, request reconcile.Requ
 		return reconcile.Result{}, err
 	}
 
-	klog.Info("src:ctr:Reconcile 01")
-
 	// If object hasn't been deleted and doesn't have a finalizer, add one
 	// Add a finalizer to newly created objects.
 	if m.ObjectMeta.DeletionTimestamp.IsZero() {
-		klog.Info("src:ctr:Reconcile 02")
 		finalizerCount := len(m.Finalizers)
 
 		if !util.Contains(m.Finalizers, machinev1.MachineFinalizer) {
 			m.Finalizers = append(m.ObjectMeta.Finalizers, machinev1.MachineFinalizer)
-			klog.Info("src:ctr:Reconcile 03")
 		}
 
 		if len(m.Finalizers) > finalizerCount {
-			klog.Info("src:ctr:Reconcile 04")
 			if err := r.Client.Update(ctx, m); err != nil {
 				klog.Infof("%v: failed to add finalizers to machine: %v", machineName, err)
 				return reconcile.Result{}, err
 			}
-			klog.Info("src:ctr:Reconcile 05")
+
 			// Since adding the finalizer updates the object return to avoid later update issues
 			return reconcile.Result{}, nil
 		}
@@ -278,17 +271,13 @@ func (r *ReconcileMachine) Reconcile(ctx context.Context, request reconcile.Requ
 		return reconcile.Result{}, nil
 	}
 
-	klog.Info("src:ctr:Reconcile 06")
-
 	if machineIsFailed(m) {
 		klog.Warningf("%v: machine has gone %q phase. It won't reconcile", machineName, phaseFailed)
 		return reconcile.Result{}, nil
 	}
-	klog.Info("src:ctr:Reconcile 07")
+
 	instanceExists, err := r.actuator.Exists(ctx, m)
-	klog.Info("src:ctr:Reconcile 08")
 	if err != nil {
-		klog.Info("src:ctr:Reconcile 09")
 		klog.Errorf("%v: failed to check if machine exists: %v", machineName, err)
 
 		conditions.Set(m, conditions.UnknownCondition(
@@ -305,7 +294,6 @@ func (r *ReconcileMachine) Reconcile(ctx context.Context, request reconcile.Requ
 	}
 
 	if instanceExists {
-		klog.Info("src:ctr:Reconcile 10")
 		klog.Infof("%v: reconciling machine triggers idempotent update", machineName)
 		if err := r.actuator.Update(ctx, m); err != nil {
 			klog.Errorf("%v: error updating machine: %v, retrying in %v seconds", machineName, err, requeueAfter)
@@ -490,8 +478,6 @@ func isInvalidMachineConfigurationError(err error) bool {
 // Because the conditions are set on the machine outside of this function, we must pass the original state of the
 // machine conditions so that the diff can be calculated properly within this function.
 func (r *ReconcileMachine) updateStatus(ctx context.Context, machine *machinev1.Machine, phase string, failureCause error, originalConditions []machinev1.Condition) error {
-	klog.Info("src:ctlr:updateStatus > entry")
-	klog.Info("src:ctlr:us mach: ", machine.Name, " phase: ", phase)
 	if stringPointerDeref(machine.Status.Phase) != phase {
 		klog.V(3).Infof("%v: going into phase %q", machine.GetName(), phase)
 	}

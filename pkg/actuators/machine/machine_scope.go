@@ -253,12 +253,19 @@ func (s *machineScope) getUserData() ([]byte, error) {
 	return userData, nil
 }
 
-func (s *machineScopeIBM) setProviderStatus(instanceId string, instanceState string) error {
+func (s *machineScopeIBM) setProviderStatus(instanceId string, instanceState string, ip string) error {
 	klog.Info("src:rec:setProviderStatus > entry")
 	if s.providerStatus == nil {
 		klog.Info("src: providerStatus is nil, assigning new instance")
 		s.providerStatus = new(IBMMachineProviderStatus)
 	}
+
+	if ip != "" {
+		networkAddresses := []corev1.NodeAddress{}
+		networkAddresses = append(networkAddresses, corev1.NodeAddress{Type: corev1.NodeInternalIP, Address: ip}, corev1.NodeAddress{Type: corev1.NodeInternalDNS, Address: s.machine.Name})
+		s.machine.Status.Addresses = networkAddresses
+	}
+
 	s.providerStatus.InstanceID = &instanceId
 	s.providerStatus.InstanceState = &instanceState
 	return nil

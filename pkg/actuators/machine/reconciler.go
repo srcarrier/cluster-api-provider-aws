@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	configv1 "github.com/openshift/api/config/v1"
@@ -47,34 +48,38 @@ func newReconciler(scope *machineScope) *Reconciler {
 }
 
 func (r *ReconcilerIBM) createIBM() error {
-	klog.Info("src:createIBM > entry - zone: ", r.providerSpec.Zone)
-	/*if r.providerSpec != nil {
-		klog.Info("IBM PS Zone: [", r.providerSpec.Zone, "]")
-	} else {
-		klog.Info("IBM PS is nil - UGH")
-	}*/
+
+	klog.Info("src:createIBM > entry")
+
 	userData, err := r.machineScopeIBM.getUserData()
 	if err != nil {
-		klog.Error("src:err getting userData: ", err)
+		klog.Error("src:createIBM err getting user data: ", err)
 	}
+
 	instance, err := r.ibmClient.CreateVsi(r.machine.GetName(), userData, *r.providerSpec)
-
 	if err != nil {
-		klog.Error("src:CreateVsi returned err: ", err)
+		klog.Error("src:createIBM create vsi returned err: ", err)
 	}
 
-	klog.Infof("src:Created Machine %v", r.machine.Name)
+	klog.Infof("src:createIBM created machine: ", r.machine.Name)
+
 	if err = r.setProviderID(); err != nil {
-		return fmt.Errorf("src: failed to update machine object with providerID: %w", err)
+		return fmt.Errorf("src:createIBM err setting providerID: %w", err)
 	}
-	r.machineScopeIBM.setProviderStatus(*instance.ID, *instance.Status)
+
+	instance, err = r.ibmClient.GetVsiById(*instance.ID)
+
+	r.setMachineCloudProviderSpecifics(instance)
+
+	r.machineScopeIBM.setProviderStatus(*instance.ID, *instance.Status, *instance.PrimaryNetworkInterface.PrimaryIpv4Address)
 	if r.machine.Annotations == nil {
 		r.machine.Annotations = make(map[string]string)
 	}
 	r.machine.Annotations[machinecontroller.MachineInstanceStateAnnotationName] = *instance.Status
+
 	statusRunning := "running"
 	if instance.Status != &statusRunning {
-		klog.Info("src: createIBM inst status != running, status: ", instance.Status)
+		klog.Info("src:createIBM inst status != running, status: ", instance.Status, " requeueing for 20 secs")
 		return &machinecontroller.RequeueAfterError{RequeueAfter: requeueAfterSeconds * time.Second}
 	}
 
@@ -224,18 +229,22 @@ func (r *ReconcilerIBM) update() error {
 
 	status := *instance.Status
 	id := *instance.ID
+	ip := *instance.PrimaryNetworkInterface.PrimaryIpv4Address
 
 	klog.Info("src: status: ", status)
 	klog.Info("src: id: ", id)
 
 	if id != "" && status != "" {
-		r.setProviderStatus(id, status)
-		r.machineScopeIBM.setProviderStatus(id, status)
-		if r.machine.Annotations == nil {
-			r.machine.Annotations = make(map[string]string)
-		}
-		r.machine.Annotations[machinecontroller.MachineInstanceStateAnnotationName] = status
+		r.setProviderStatus(id, status, ip)
+		r.machineScopeIBM.setProviderStatus(id, status, ip)
 	}
+
+	if r.machine.Annotations == nil {
+		r.machine.Annotations = make(map[string]string)
+	}
+	r.machine.Annotations[machinecontroller.MachineInstanceStateAnnotationName] = status
+	klog.Info("src:88 update anno state to ", status)
+	klog.Info("src:88 anno: ", r.machine.Annotations[machinecontroller.MachineInstanceStateAnnotationName])
 
 	if status == "running" {
 		r.setProviderID()
@@ -499,6 +508,24 @@ func (r *Reconciler) setProviderID(instance *ec2.Instance) error {
 	}
 	r.machine.Spec.ProviderID = &providerID
 	klog.Infof("%s: ProviderID set at machine spec: %s", r.machine.Name, providerID)
+	return nil
+}
+
+func (r *ReconcilerIBM) setMachineCloudProviderSpecifics(instance *vpcv1.Instance) error {
+
+	machineProviderConfig, err := awsproviderv1.IBMProviderSpecFromRawExtension(r.machine.Spec.ProviderSpec.Value)
+
+	if err != nil {
+		return fmt.Errorf("error decoding MachineProviderConfig: %w", err)
+	}
+
+	if machineProviderConfig.Region != "" {
+		r.machine.Labels[machinecontroller.MachineRegionLabelName] = machineProviderConfig.Region // set region
+	}
+	if machineProviderConfig.Zone != "" {
+		r.machine.Labels[machinecontroller.MachineAZLabelName] = machineProviderConfig.Zone // set zone
+	}
+
 	return nil
 }
 

@@ -175,7 +175,15 @@ func (a *Actuator) Update(ctx context.Context, machine *machinev1.Machine) error
 		klog.Error("src:rec:update err: ", errIBM)
 	}
 
-	return newReconcilerIBM(scopeIBM).update()
+	err := newReconcilerIBM(scopeIBM).update()
+
+	klog.Info("src:88:Update anno: ", scopeIBM.machine.Annotations["machine.openshift.io/instance-state"])
+
+	if err != nil {
+		return err
+	}
+
+	return scopeIBM.patchMachine()
 
 	/*
 		scope, err := newMachineScope(machineScopeParams{

@@ -351,8 +351,12 @@ type IBMCloudMachineProviderSpec struct {
 	// Example: bx2-8x32 (8 vCPUs, 32 GB RAM)
 	Profile string `json:"profile"`
 
+	Region string `json:"region"`
+
 	// Zone where the virtual server instance will be created
 	Zone string `json:"zone"`
+
+	SSHKey string `json:"sshkey"`
 
 	// ProviderID is the unique identifier as specified by the cloud provider.
 	// +optional

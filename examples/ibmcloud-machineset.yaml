@@ -26,6 +26,11 @@ spec:
           apiVersion: awsproviderconfig.openshift.io/v1beta1
           kind: IBMCloudMachineProviderSpec
           zone: us-east-1
+          profile: bx2-4x16
+          image: r014-69281f26-bb55-42b5-ba32-855d03b13233
+          primaryNetworkInterface:
+              subnet: 0757-375fe20d-2480-44f8-aff8-ec11ad771136
+          sshkey: r014-bf027d6a-8622-4f4b-89b8-7abbaf778891
 
 status:
   replicas: 1
